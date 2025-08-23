@@ -304,15 +304,21 @@ async def _get_thread_messages(
     return sorted(thread_messages, key=lambda m: m.timestamp)
 
 
-def _parse_mentions(message: str, room_users: list[str]) -> tuple[str, str | None]:
-    """Parse @mentions in message and return (body, formatted_body).
+def _parse_mentions(
+    message: str, room_users: list[str]
+) -> tuple[str, str | None, list[str]]:
+    """Parse @mentions in message and return (body, formatted_body, mentioned_user_ids).
 
     Handles:
     - @username -> finds matching Matrix user ID
     - @user:server.com -> uses full Matrix ID directly
+
+    Returns:
+        Tuple of (body, formatted_body, list of mentioned user IDs)
     """
     formatted_body = None
     body = message
+    mentioned_user_ids = []
 
     # Find all @mentions in the message
     mention_pattern = r"@(\S+)"
@@ -338,15 +344,16 @@ def _parse_mentions(message: str, room_users: list[str]) -> tuple[str, str | Non
                         break
 
             if user_id:
+                mentioned_user_ids.append(user_id)
                 # Create the mention HTML
                 mention_html = f'<a href="https://matrix.to/#/{user_id}">{user_id}</a>'
                 formatted_body = formatted_body.replace(f"@{mention}", mention_html)
 
         # Only return formatted_body if we actually found valid mentions
-        if "<a href=" in formatted_body:
-            return body, formatted_body
+        if mentioned_user_ids:
+            return body, formatted_body, mentioned_user_ids
 
-    return body, None
+    return body, None, []
 
 
 async def _send_message(
@@ -363,7 +370,7 @@ async def _send_message(
         room_users = list(room.users.keys()) if room else []
 
         # Parse mentions
-        body, formatted_body = _parse_mentions(message, room_users)
+        body, formatted_body, mentioned_user_ids = _parse_mentions(message, room_users)
 
         content = {"msgtype": "m.text", "body": body}
 
@@ -371,6 +378,10 @@ async def _send_message(
         if formatted_body:
             content["format"] = "org.matrix.custom.html"
             content["formatted_body"] = formatted_body
+
+        # Add m.mentions field if we have any mentions
+        if mentioned_user_ids:
+            content["m.mentions"] = {"user_ids": mentioned_user_ids}
 
         # Add thread or reply relations
         if thread_root_id or reply_to_id:

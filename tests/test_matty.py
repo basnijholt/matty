@@ -387,6 +387,66 @@ class TestAsyncFunctions:
             '<a href="https://matrix.to/#/@alice:matrix.org">'
             in content["formatted_body"]
         )
+        # Check that m.mentions field is properly set
+        assert "m.mentions" in content
+        assert content["m.mentions"]["user_ids"] == ["@alice:matrix.org"]
+
+    @pytest.mark.asyncio
+    async def test_send_message_with_multiple_mentions(self):
+        """Test sending a message with multiple mentions."""
+        client = MagicMock(spec=AsyncClient)
+        response = RoomSendResponse("$new_event789", "!room:matrix.org")
+        client.room_send = AsyncMock(return_value=response)
+        # Add rooms attribute with users for mention parsing
+        room_mock = MagicMock()
+        room_mock.users = {
+            "@alice:matrix.org": {},
+            "@bob:matrix.org": {},
+            "@charlie:matrix.org": {},
+        }
+        client.rooms = {"!room:matrix.org": room_mock}
+
+        result = await _send_message(
+            client,
+            "!room:matrix.org",
+            "@alice @bob please review this",
+        )
+        assert result is True
+
+        # Check that m.mentions field contains both users
+        call_args = client.room_send.call_args
+        content = call_args[1]["content"]
+        assert "m.mentions" in content
+        assert set(content["m.mentions"]["user_ids"]) == {
+            "@alice:matrix.org",
+            "@bob:matrix.org",
+        }
+        assert len(content["m.mentions"]["user_ids"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_send_message_without_mentions(self):
+        """Test sending a message without mentions."""
+        client = MagicMock(spec=AsyncClient)
+        response = RoomSendResponse("$new_event999", "!room:matrix.org")
+        client.room_send = AsyncMock(return_value=response)
+        # Add rooms attribute for mention parsing
+        room_mock = MagicMock()
+        room_mock.users = {"@alice:matrix.org": {}, "@bob:matrix.org": {}}
+        client.rooms = {"!room:matrix.org": room_mock}
+
+        result = await _send_message(
+            client,
+            "!room:matrix.org",
+            "No mentions in this message",
+        )
+        assert result is True
+
+        # Check that m.mentions field is NOT present when no mentions
+        call_args = client.room_send.call_args
+        content = call_args[1]["content"]
+        assert "m.mentions" not in content
+        assert content["body"] == "No mentions in this message"
+        assert "formatted_body" not in content  # No HTML formatting needed
 
     @pytest.mark.asyncio
     async def test_send_message_error(self):
