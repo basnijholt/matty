@@ -15,7 +15,6 @@ from pathlib import Path
 import typer
 from nio import (
     AsyncClient,
-    LoginResponse,
     ReactionEvent,
     RedactedEvent,
     RoomMessageText,
@@ -135,6 +134,25 @@ def _resolve_thread_id(thread_id: str) -> tuple[str | None, str | None]:
 
 
 # =============================================================================
+# Response Handling Helper
+# =============================================================================
+
+
+def _is_success_response(response: any) -> bool:
+    """Check if a Matrix client response indicates success.
+
+    The nio library returns different types for success/failure:
+    - Success: Specific response classes (LoginResponse, RoomSendResponse, etc.)
+    - Failure: ErrorResponse or exceptions
+
+    This helper standardizes the checking.
+    """
+    from nio import ErrorResponse  # noqa: PLC0415
+
+    return response is not None and not isinstance(response, ErrorResponse)
+
+
+# =============================================================================
 # CLI Helper Functions
 # =============================================================================
 
@@ -230,7 +248,10 @@ async def _login(client: AsyncClient, username: str, password: str) -> bool:  # 
     """Perform Matrix login."""
     try:
         response = await client.login(password)
-        return isinstance(response, LoginResponse)
+        if _is_success_response(response):
+            return True
+        console.print(f"[red]Login failed: {response}[/red]")
+        return False  # noqa: TRY300
     except Exception as e:
         console.print(f"[red]Login error: {e}[/red]")
         return False
@@ -478,8 +499,13 @@ async def _send_message(
                 # Reply to specific message
                 content["m.relates_to"]["m.in_reply_to"] = {"event_id": reply_to_id}
 
-        await client.room_send(room_id, message_type="m.room.message", content=content)
-        return True  # noqa: TRY300
+        response = await client.room_send(
+            room_id, message_type="m.room.message", content=content
+        )
+        if _is_success_response(response):
+            return True
+        console.print(f"[red]Failed to send message: {response}[/red]")
+        return False  # noqa: TRY300
     except Exception as e:
         console.print(f"[red]Failed to send: {e}[/red]")
         return False
@@ -501,8 +527,13 @@ async def _send_reaction(
             }
         }
 
-        await client.room_send(room_id, message_type="m.reaction", content=content)
-        return True  # noqa: TRY300
+        response = await client.room_send(
+            room_id, message_type="m.reaction", content=content
+        )
+        if _is_success_response(response):
+            return True
+        console.print(f"[red]Failed to send reaction: {response}[/red]")
+        return False  # noqa: TRY300
     except Exception as e:
         console.print(f"[red]Failed to send reaction: {e}[/red]")
         return False
@@ -530,8 +561,11 @@ async def _remove_reaction(
             )
             return False
 
-        await client.room_redact(room_id, reaction_event_id)
-        return True  # noqa: TRY300
+        response = await client.room_redact(room_id, reaction_event_id)
+        if _is_success_response(response):
+            return True
+        console.print(f"[red]Failed to remove reaction: {response}[/red]")
+        return False  # noqa: TRY300
     except Exception as e:
         console.print(f"[red]Failed to remove reaction: {e}[/red]")
         return False
@@ -1388,12 +1422,17 @@ def redact(
 
             # Redact the message
             try:
-                await client.room_redact(room_id, target_msg.event_id, reason=reason)
-                console.print(
-                    f"[green]✓ Message {handle} redacted in {room_name}[/green]"
+                response = await client.room_redact(
+                    room_id, target_msg.event_id, reason=reason
                 )
-                if reason:
-                    console.print(f"[dim]Reason: {reason}[/dim]")
+                if _is_success_response(response):
+                    console.print(
+                        f"[green]✓ Message {handle} redacted in {room_name}[/green]"
+                    )
+                    if reason:
+                        console.print(f"[dim]Reason: {reason}[/dim]")
+                else:
+                    console.print(f"[red]Failed to redact message: {response}[/red]")
             except Exception as e:
                 console.print(f"[red]Failed to redact message: {e}[/red]")
 
