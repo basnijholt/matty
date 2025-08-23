@@ -42,6 +42,7 @@ env/
 .coverage
 .pytest_cache/
 htmlcov/
+coverage.xml
 
 # uv
 uv.lock
