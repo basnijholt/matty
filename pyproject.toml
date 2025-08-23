@@ -1,7 +1,7 @@
 [project]
-name = "matrix-cli"
+name = "matty"
 version = "0.1.0"
-description = "A simple, AI-friendly Matrix chat client with CLI interface"
+description = "A Terminal UI for Matrix chat - simple and AI-friendly"
 readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "MIT"}
@@ -30,13 +30,13 @@ dependencies = [
 ]
 
 [project.scripts]
-matrix-cli = "matrix_cli:app"
+matty = "matrix_cli:app"
 
 [project.urls]
-Homepage = "https://github.com/basnijholt/matrix-cli"
-Documentation = "https://github.com/basnijholt/matrix-cli#readme"
-Repository = "https://github.com/basnijholt/matrix-cli"
-Issues = "https://github.com/basnijholt/matrix-cli/issues"
+Homepage = "https://github.com/basnijholt/matty"
+Documentation = "https://github.com/basnijholt/matty#readme"
+Repository = "https://github.com/basnijholt/matty"
+Issues = "https://github.com/basnijholt/matty/issues"
 
 [dependency-groups]
 dev = [
@@ -142,7 +142,7 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 
 [tool.ruff.lint.isort]
-known-first-party = ["matrix_cli"]
+known-first-party = ["matty"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
