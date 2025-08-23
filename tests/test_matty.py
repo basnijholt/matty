@@ -1066,8 +1066,11 @@ class TestThreadHandling:
 
             # First message should be the placeholder
             placeholder = thread_messages[0]
-            assert placeholder.sender == "[deleted]"
-            assert placeholder.content == "[Thread root message has been deleted]"
+            assert placeholder.sender == "[system]"
+            assert (
+                placeholder.content
+                == "[Thread root message not available - may be deleted or outside message range]"
+            )
             assert placeholder.event_id == thread_root_id
             assert placeholder.is_thread_root is True
 

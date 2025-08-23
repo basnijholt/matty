@@ -702,15 +702,15 @@ async def _get_thread_messages(
         elif msg.thread_root_id == thread_id:
             thread_messages.append(msg)
 
-    # If we didn't find the root message but found replies, the root might be deleted
-    # Add a placeholder for the deleted root message
+    # If we didn't find the root message but found replies, the root might be deleted or out of range
+    # Add a placeholder for the missing root message
     if not root_found and thread_messages:
-        # Create a placeholder for the deleted root message
+        # Create a placeholder for the missing root message
         # Use the earliest reply's timestamp minus 1 second for the placeholder
         earliest_timestamp = min(msg.timestamp for msg in thread_messages if msg.timestamp)
         placeholder = Message(
-            sender="[deleted]",
-            content="[Thread root message has been deleted]",
+            sender="[system]",
+            content="[Thread root message not available - may be deleted or outside message range]",
             timestamp=earliest_timestamp.replace(microsecond=0) - timedelta(seconds=1),
             room_id=room_id,
             event_id=thread_id,
