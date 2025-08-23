@@ -8,7 +8,7 @@ import re
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from urllib.parse import urlparse
@@ -691,8 +691,33 @@ async def _get_thread_messages(
     """Get all messages in a specific thread."""
     messages = await _get_messages(client, room_id, limit)
 
-    # Find the thread root
-    thread_messages = [msg for msg in messages if thread_id in (msg.event_id, msg.thread_root_id)]
+    # Find the thread root and replies
+    thread_messages = []
+    root_found = False
+
+    for msg in messages:
+        if msg.event_id == thread_id:
+            thread_messages.append(msg)
+            root_found = True
+        elif msg.thread_root_id == thread_id:
+            thread_messages.append(msg)
+
+    # If we didn't find the root message but found replies, the root might be deleted
+    # Add a placeholder for the deleted root message
+    if not root_found and thread_messages:
+        # Create a placeholder for the deleted root message
+        # Use the earliest reply's timestamp minus 1 second for the placeholder
+        earliest_timestamp = min(msg.timestamp for msg in thread_messages if msg.timestamp)
+        placeholder = Message(
+            sender="[deleted]",
+            content="[Thread root message has been deleted]",
+            timestamp=earliest_timestamp.replace(microsecond=0) - timedelta(seconds=1),
+            room_id=room_id,
+            event_id=thread_id,
+            is_thread_root=True,
+            handle=_get_or_create_handle(room_id, thread_id) if thread_id else None,
+        )
+        thread_messages.insert(0, placeholder)
 
     return sorted(thread_messages, key=lambda m: m.timestamp)
 
