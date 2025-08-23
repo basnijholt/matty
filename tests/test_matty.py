@@ -345,9 +345,7 @@ class TestAsyncFunctions:
         original_msg.body = "Original message"
         original_msg.server_timestamp = 1704110400000
         original_msg.event_id = "$event123"
-        original_msg.source = {
-            "content": {"body": "Original message", "msgtype": "m.text"}
-        }
+        original_msg.source = {"content": {"body": "Original message", "msgtype": "m.text"}}
 
         # Create edit event
         edit_msg = MagicMock(spec=RoomMessageText)
@@ -390,9 +388,7 @@ class TestAsyncFunctions:
         client.room_send = AsyncMock(return_value=response)
         # Add rooms attribute for mention parsing
         client.rooms = {
-            "!room:matrix.org": MagicMock(
-                users={"@user1:matrix.org": {}, "@user2:matrix.org": {}}
-            )
+            "!room:matrix.org": MagicMock(users={"@user1:matrix.org": {}, "@user2:matrix.org": {}})
         }
 
         result = await _send_message(
@@ -433,10 +429,7 @@ class TestAsyncFunctions:
         assert content["body"] == "@alice please check this"
         assert "formatted_body" in content
         assert "@alice:matrix.org" in content["formatted_body"]
-        assert (
-            '<a href="https://matrix.to/#/@alice:matrix.org">'
-            in content["formatted_body"]
-        )
+        assert '<a href="https://matrix.to/#/@alice:matrix.org">' in content["formatted_body"]
         # Check that m.mentions field is properly set
         assert "m.mentions" in content
         assert content["m.mentions"]["user_ids"] == ["@alice:matrix.org"]
@@ -542,9 +535,7 @@ class TestAsyncFunctions:
         regular_event.body = "Regular message"
         regular_event.server_timestamp = 1704110600000
         regular_event.event_id = "$event2"
-        regular_event.source = {
-            "content": {"body": "Regular message", "msgtype": "m.text"}
-        }
+        regular_event.source = {"content": {"body": "Regular message", "msgtype": "m.text"}}
 
         mock_response = MagicMock()
         mock_response.chunk = [thread_event, reply_event, regular_event]
@@ -604,9 +595,7 @@ class TestAsyncFunctions:
 
         client.room_messages = AsyncMock(return_value=mock_response)
 
-        thread_messages = await _get_thread_messages(
-            client, "!room:matrix.org", "$thread1"
-        )
+        thread_messages = await _get_thread_messages(client, "!room:matrix.org", "$thread1")
         assert len(thread_messages) == 2
         assert thread_messages[0].event_id == "$thread1"
         assert thread_messages[1].event_id == "$reply1"

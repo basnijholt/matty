@@ -448,9 +448,7 @@ def _assign_message_handles(messages: list[Message]) -> list[Message]:
     return messages
 
 
-async def _get_messages(
-    client: AsyncClient, room_id: str, limit: int = 20
-) -> list[Message]:
+async def _get_messages(client: AsyncClient, room_id: str, limit: int = 20) -> list[Message]:
     """Fetch messages from a room, including thread information, reactions, and edits."""
     try:
         response = await client.room_messages(room_id, limit=limit)
@@ -472,8 +470,7 @@ async def _get_messages(
                     and (original_id := relates_to.get("event_id"))
                     and (
                         original_id not in edits_map
-                        or event.server_timestamp
-                        > edits_map[original_id].server_timestamp
+                        or event.server_timestamp > edits_map[original_id].server_timestamp
                     )
                 ):
                     edits_map[original_id] = event
@@ -494,9 +491,7 @@ async def _get_messages(
                     edit_content = edit_event.source.get("content", {})
                     # Get the new content from m.new_content field
                     if "m.new_content" in edit_content:
-                        message_content = edit_content["m.new_content"].get(
-                            "body", event.body
-                        )
+                        message_content = edit_content["m.new_content"].get("body", event.body)
                     else:
                         # Fallback: remove the "* " prefix from edit body
                         message_content = edit_event.body
@@ -527,9 +522,7 @@ async def _get_messages(
                     Message(
                         sender=event.sender,
                         content=message_content,
-                        timestamp=datetime.fromtimestamp(
-                            event.server_timestamp / 1000, tz=UTC
-                        ),
+                        timestamp=datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC),
                         room_id=room_id,
                         event_id=event.event_id,
                         thread_root_id=thread_root_id,
@@ -544,9 +537,7 @@ async def _get_messages(
                     Message(
                         sender=event.sender,
                         content="[Message deleted]",
-                        timestamp=datetime.fromtimestamp(
-                            event.server_timestamp / 1000, tz=UTC
-                        ),
+                        timestamp=datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC),
                         room_id=room_id,
                         event_id=event.event_id,
                         thread_root_id=None,
@@ -589,9 +580,7 @@ async def _get_messages(
         return []
 
 
-async def _get_threads(
-    client: AsyncClient, room_id: str, limit: int = 50
-) -> list[Message]:
+async def _get_threads(client: AsyncClient, room_id: str, limit: int = 50) -> list[Message]:
     """Get all thread root messages in a room."""
     messages = await _get_messages(client, room_id, limit)
     return [msg for msg in messages if msg.is_thread_root]
@@ -604,16 +593,12 @@ async def _get_thread_messages(
     messages = await _get_messages(client, room_id, limit)
 
     # Find the thread root
-    thread_messages = [
-        msg for msg in messages if thread_id in (msg.event_id, msg.thread_root_id)
-    ]
+    thread_messages = [msg for msg in messages if thread_id in (msg.event_id, msg.thread_root_id)]
 
     return sorted(thread_messages, key=lambda m: m.timestamp)
 
 
-def _parse_mentions(
-    message: str, room_users: list[str]
-) -> tuple[str, str | None, list[str]]:
+def _parse_mentions(message: str, room_users: list[str]) -> tuple[str, str | None, list[str]]:
     """Parse @mentions in message and return (body, formatted_body, mentioned_user_ids).
 
     Handles:
@@ -643,10 +628,7 @@ def _parse_mentions(
                 # Try to find a matching user in the room
                 for room_user in room_users:
                     # Match by local part (before :) or display name
-                    if (
-                        room_user.startswith(f"@{mention}:")
-                        or mention.lower() in room_user.lower()
-                    ):
+                    if room_user.startswith(f"@{mention}:") or mention.lower() in room_user.lower():
                         user_id = room_user
                         break
 
@@ -703,9 +685,7 @@ async def _send_message(
                 # Reply to specific message
                 content["m.relates_to"]["m.in_reply_to"] = {"event_id": reply_to_id}
 
-        response = await client.room_send(
-            room_id, message_type="m.room.message", content=content
-        )
+        response = await client.room_send(room_id, message_type="m.room.message", content=content)
         if _is_success_response(response):
             return True
         console.print(f"[red]Failed to send message: {response}[/red]")
@@ -731,9 +711,7 @@ async def _send_reaction(
             }
         }
 
-        response = await client.room_send(
-            room_id, message_type="m.reaction", content=content
-        )
+        response = await client.room_send(room_id, message_type="m.reaction", content=content)
         if _is_success_response(response):
             return True
         console.print(f"[red]Failed to send reaction: {response}[/red]")
@@ -903,16 +881,11 @@ def _display_users_rich(users: list[str], room_name: str) -> None:
 
     for idx, user in enumerate(users, 1):
         # Extract username for mention (part before :)
-        if user.startswith("@") and ":" in user:
-            mention = "@" + user.split(":")[0][1:]
-        else:
-            mention = user
+        mention = "@" + user.split(":")[0][1:] if user.startswith("@") and ":" in user else user
         table.add_row(str(idx), user, mention)
 
     console.print(table)
-    console.print(
-        "\n[dim]Use mentions in messages: matty send room '@username message'[/dim]"
-    )
+    console.print("\n[dim]Use mentions in messages: matty send room '@username message'[/dim]")
 
 
 def _display_users_simple(users: list[str], room_name: str) -> None:
@@ -1243,9 +1216,7 @@ def users(
 def send(
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
-    message: str = typer.Argument(
-        None, help="Message to send (use @username for mentions)"
-    ),
+    message: str = typer.Argument(None, help="Message to send (use @username for mentions)"),
     username: str | None = typer.Option(None, "--username", "-u"),
     password: str | None = typer.Option(None, "--password", "-p"),
 ):
@@ -1293,14 +1264,10 @@ def threads(
                     time_str = thread.timestamp.strftime("%H:%M")
                     # Truncate content for display
                     content = (
-                        thread.content[:50] + "..."
-                        if len(thread.content) > 50
-                        else thread.content
+                        thread.content[:50] + "..." if len(thread.content) > 50 else thread.content
                     )
                     # Get simple ID for thread
-                    simple_id = (
-                        _get_or_create_id(thread.event_id) if thread.event_id else "?"
-                    )
+                    simple_id = _get_or_create_id(thread.event_id) if thread.event_id else "?"
                     table.add_row(f"t{simple_id}", time_str, thread.sender, content)
 
                 console.print(table)
@@ -1333,9 +1300,7 @@ def threads(
 def thread(
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
-    thread_id: str = typer.Argument(
-        None, help="Thread ID (t1, t2, etc.) or full Matrix ID"
-    ),
+    thread_id: str = typer.Argument(None, help="Thread ID (t1, t2, etc.) or full Matrix ID"),
     limit: int = typer.Option(50, "--limit", "-l", help="Number of messages to fetch"),
     username: str | None = typer.Option(None, "--username", "-u"),
     password: str | None = typer.Option(None, "--password", "-p"),
@@ -1359,14 +1324,10 @@ def thread(
             if client is None:
                 return
 
-            thread_messages = await _get_thread_messages(
-                client, room_id, actual_thread_id, limit
-            )
+            thread_messages = await _get_thread_messages(client, room_id, actual_thread_id, limit)
 
             if not thread_messages:
-                console.print(
-                    f"[yellow]No messages found in thread {thread_id}[/yellow]"
-                )
+                console.print(f"[yellow]No messages found in thread {thread_id}[/yellow]")
                 return
 
             if format == OutputFormat.rich:
@@ -1395,9 +1356,7 @@ def thread(
                 print(f"=== Thread in {room_name} ===")
                 for msg in thread_messages:
                     time_str = msg.timestamp.strftime("%H:%M")
-                    prefix = (
-                        "THREAD START: " if msg.event_id == actual_thread_id else "  > "
-                    )
+                    prefix = "THREAD START: " if msg.event_id == actual_thread_id else "  > "
                     print(f"{prefix}[{time_str}] {msg.sender}: {msg.content}")
 
             elif format == OutputFormat.json:
@@ -1421,9 +1380,7 @@ def thread(
 def reply(
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
-    handle: str = typer.Argument(
-        None, help="Message handle (m1, m2, etc.) to reply to"
-    ),
+    handle: str = typer.Argument(None, help="Message handle (m1, m2, etc.) to reply to"),
     message: str = typer.Argument(None, help="Reply message"),
     username: str | None = typer.Option(None, "--username", "-u"),
     password: str | None = typer.Option(None, "--password", "-p"),
@@ -1448,9 +1405,7 @@ def reply(
                 return
 
             # Send reply
-            if await _send_message(
-                client, room_id, message, reply_to_id=target_msg.event_id
-            ):
+            if await _send_message(client, room_id, message, reply_to_id=target_msg.event_id):
                 console.print(f"[green]✓ Reply sent to {handle} in {room_name}[/green]")
             else:
                 console.print("[red]✗ Failed to send reply[/red]")
@@ -1463,9 +1418,7 @@ def reply(
 def thread_start(
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
-    handle: str = typer.Argument(
-        None, help="Message handle (m1, m2, etc.) to start thread from"
-    ),
+    handle: str = typer.Argument(None, help="Message handle (m1, m2, etc.) to start thread from"),
     message: str = typer.Argument(None, help="First message in the thread"),
     username: str | None = typer.Option(None, "--username", "-u"),
     password: str | None = typer.Option(None, "--password", "-p"),
@@ -1490,12 +1443,8 @@ def thread_start(
                 return
 
             # Send thread message
-            if await _send_message(
-                client, room_id, message, thread_root_id=target_msg.event_id
-            ):
-                console.print(
-                    f"[green]✓ Thread started from {handle} in {room_name}[/green]"
-                )
+            if await _send_message(client, room_id, message, thread_root_id=target_msg.event_id):
+                console.print(f"[green]✓ Thread started from {handle} in {room_name}[/green]")
                 console.print(f"[dim]Thread ID: {target_msg.event_id}[/dim]")
             else:
                 console.print("[red]✗ Failed to start thread[/red]")
@@ -1508,9 +1457,7 @@ def thread_start(
 def thread_reply(
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
-    thread_id: str = typer.Argument(
-        None, help="Thread ID (t1, t2, etc.) or full Matrix ID"
-    ),
+    thread_id: str = typer.Argument(None, help="Thread ID (t1, t2, etc.) or full Matrix ID"),
     message: str = typer.Argument(None, help="Reply message"),
     username: str | None = typer.Option(None, "--username", "-u"),
     password: str | None = typer.Option(None, "--password", "-p"),
@@ -1534,9 +1481,7 @@ def thread_reply(
                 return
 
             # Send thread reply
-            if await _send_message(
-                client, room_id, message, thread_root_id=actual_thread_id
-            ):
+            if await _send_message(client, room_id, message, thread_root_id=actual_thread_id):
                 console.print(f"[green]✓ Reply sent to thread in {room_name}[/green]")
             else:
                 console.print("[red]✗ Failed to send thread reply[/red]")
@@ -1549,9 +1494,7 @@ def thread_reply(
 def react(
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
-    handle: str = typer.Argument(
-        None, help="Message handle (m1, m2, etc.) to react to"
-    ),
+    handle: str = typer.Argument(None, help="Message handle (m1, m2, etc.) to react to"),
     emoji: str = typer.Argument(None, help="Emoji reaction (e.g., 👍, ❤️, 😄)"),
     username: str | None = typer.Option(None, "--username", "-u"),
     password: str | None = typer.Option(None, "--password", "-p"),
@@ -1581,9 +1524,7 @@ def react(
 
             # Send reaction
             if await _send_reaction(client, room_id, target_msg.event_id, emoji):
-                console.print(
-                    f"[green]✓ Reacted with {emoji} to {handle} in {room_name}[/green]"
-                )
+                console.print(f"[green]✓ Reacted with {emoji} to {handle} in {room_name}[/green]")
             else:
                 console.print("[red]✗ Failed to send reaction[/red]")
 
@@ -1628,9 +1569,7 @@ def edit(
             room_users = list(room_obj.users.keys()) if room_obj else []
 
             # Parse mentions
-            body, formatted_body, mentioned_user_ids = _parse_mentions(
-                new_content, room_users
-            )
+            body, formatted_body, mentioned_user_ids = _parse_mentions(new_content, room_users)
 
             # Create edit content with m.replace relation
             edit_content = {
@@ -1656,9 +1595,7 @@ def edit(
             # Add mentions field if there are any
             if mentioned_user_ids:
                 edit_content["m.mentions"] = {"user_ids": mentioned_user_ids}
-                edit_content["m.new_content"]["m.mentions"] = {
-                    "user_ids": mentioned_user_ids
-                }
+                edit_content["m.new_content"]["m.mentions"] = {"user_ids": mentioned_user_ids}
 
             try:
                 response = await client.room_send(
@@ -1666,9 +1603,7 @@ def edit(
                 )
 
                 if _is_success_response(response):
-                    console.print(
-                        f"[green]✓ Message {handle} edited in {room_name}[/green]"
-                    )
+                    console.print(f"[green]✓ Message {handle} edited in {room_name}[/green]")
                     if mentioned_user_ids:
                         console.print("[dim]Note: Mentions were processed[/dim]")
                 else:
@@ -1684,9 +1619,7 @@ def edit(
 def redact(
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
-    handle: str = typer.Argument(
-        None, help="Message handle (m1, m2, etc.) to redact/delete"
-    ),
+    handle: str = typer.Argument(None, help="Message handle (m1, m2, etc.) to redact/delete"),
     reason: str = typer.Option(None, "--reason", "-r", help="Reason for redaction"),
     username: str | None = typer.Option(None, "--username", "-u"),
     password: str | None = typer.Option(None, "--password", "-p"),
@@ -1716,13 +1649,9 @@ def redact(
 
             # Redact the message
             try:
-                response = await client.room_redact(
-                    room_id, target_msg.event_id, reason=reason
-                )
+                response = await client.room_redact(room_id, target_msg.event_id, reason=reason)
                 if _is_success_response(response):
-                    console.print(
-                        f"[green]✓ Message {handle} redacted in {room_name}[/green]"
-                    )
+                    console.print(f"[green]✓ Message {handle} redacted in {room_name}[/green]")
                     if reason:
                         console.print(f"[dim]Reason: {reason}[/dim]")
                 else:
@@ -1738,9 +1667,7 @@ def redact(
 def reactions(
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
-    handle: str = typer.Argument(
-        None, help="Message handle (m1, m2, etc.) to show reactions for"
-    ),
+    handle: str = typer.Argument(None, help="Message handle (m1, m2, etc.) to show reactions for"),
     username: str | None = typer.Option(None, "--username", "-u"),
     password: str | None = typer.Option(None, "--password", "-p"),
     format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
@@ -1769,9 +1696,7 @@ def reactions(
                 return
 
             if format == OutputFormat.rich:
-                table = Table(
-                    title=f"Reactions for {handle} in {room_name}", show_lines=True
-                )
+                table = Table(title=f"Reactions for {handle} in {room_name}", show_lines=True)
                 table.add_column("Emoji", style="yellow")
                 table.add_column("Count", style="cyan")
                 table.add_column("Users", style="green")
