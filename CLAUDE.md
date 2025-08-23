@@ -34,7 +34,6 @@
 ## Matrix Client Specific
 
 ### Connection Details
-- Server: `https://m-test.mindroom.chat`
 - SSL Verify: false (test server)
 - Test credentials in `.env` file
 

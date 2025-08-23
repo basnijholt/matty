@@ -629,17 +629,19 @@ async def _execute_send_command(
 # =============================================================================
 
 
-@app.command()
+@app.command("rooms")
+@app.command("r", hidden=True)
 def rooms(
     username: str | None = typer.Option(None, "--username", "-u"),
     password: str | None = typer.Option(None, "--password", "-p"),
     format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
 ):
-    """List all joined rooms."""
+    """List all joined rooms. (alias: r)"""
     asyncio.run(_execute_rooms_command(username, password, format))
 
 
-@app.command()
+@app.command("messages")
+@app.command("m", hidden=True)
 def messages(
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
@@ -648,14 +650,15 @@ def messages(
     password: str | None = typer.Option(None, "--password", "-p"),
     format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
 ):
-    """Show recent messages from a room."""
+    """Show recent messages from a room. (alias: m)"""
     if room is None:
         console.print(ctx.get_help())
         raise typer.Exit(1)
     asyncio.run(_execute_messages_command(room, limit, username, password, format))
 
 
-@app.command()
+@app.command("users")
+@app.command("u", hidden=True)
 def users(
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
@@ -663,14 +666,15 @@ def users(
     password: str | None = typer.Option(None, "--password", "-p"),
     format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
 ):
-    """Show users in a room."""
+    """Show users in a room. (alias: u)"""
     if room is None:
         console.print(ctx.get_help())
         raise typer.Exit(1)
     asyncio.run(_execute_users_command(room, username, password, format))
 
 
-@app.command()
+@app.command("send")
+@app.command("s", hidden=True)
 def send(
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
@@ -678,14 +682,15 @@ def send(
     username: str | None = typer.Option(None, "--username", "-u"),
     password: str | None = typer.Option(None, "--password", "-p"),
 ):
-    """Send a message to a room."""
+    """Send a message to a room. (alias: s)"""
     if room is None or message is None:
         console.print(ctx.get_help())
         raise typer.Exit(1)
     asyncio.run(_execute_send_command(room, message, username, password))
 
 
-@app.command()
+@app.command("threads")
+@app.command("t", hidden=True)
 def threads(
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
@@ -694,7 +699,7 @@ def threads(
     password: str | None = typer.Option(None, "--password", "-p"),
     format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
 ):
-    """List all threads in a room."""
+    """List all threads in a room. (alias: t)"""
     if room is None:
         console.print(ctx.get_help())
         raise typer.Exit(1)
@@ -777,7 +782,8 @@ def threads(
     asyncio.run(_threads())
 
 
-@app.command()
+@app.command("thread")
+@app.command("th", hidden=True)
 def thread(
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
@@ -789,7 +795,7 @@ def thread(
     password: str | None = typer.Option(None, "--password", "-p"),
     format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
 ):
-    """Show all messages in a specific thread."""
+    """Show all messages in a specific thread. (alias: th)"""
     if room is None or thread_id is None:
         console.print(ctx.get_help())
         raise typer.Exit(1)
@@ -891,7 +897,8 @@ def thread(
     asyncio.run(_thread())
 
 
-@app.command()
+@app.command("reply")
+@app.command("re", hidden=True)
 def reply(
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
@@ -902,7 +909,7 @@ def reply(
     username: str | None = typer.Option(None, "--username", "-u"),
     password: str | None = typer.Option(None, "--password", "-p"),
 ):
-    """Reply to a specific message using its handle."""
+    """Reply to a specific message using its handle. (alias: re)"""
     if room is None or handle is None or message is None:
         console.print(ctx.get_help())
         raise typer.Exit(1)
@@ -952,7 +959,8 @@ def reply(
     asyncio.run(_reply())
 
 
-@app.command(name="thread-start")
+@app.command("thread-start")
+@app.command("ts", hidden=True)
 def thread_start(
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
@@ -963,7 +971,7 @@ def thread_start(
     username: str | None = typer.Option(None, "--username", "-u"),
     password: str | None = typer.Option(None, "--password", "-p"),
 ):
-    """Start a new thread from a message using its handle."""
+    """Start a new thread from a message using its handle. (alias: ts)"""
     if room is None or handle is None or message is None:
         console.print(ctx.get_help())
         raise typer.Exit(1)
@@ -1014,7 +1022,8 @@ def thread_start(
     asyncio.run(_thread_start())
 
 
-@app.command(name="thread-reply")
+@app.command("thread-reply")
+@app.command("tr", hidden=True)
 def thread_reply(
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
@@ -1025,7 +1034,7 @@ def thread_reply(
     username: str | None = typer.Option(None, "--username", "-u"),
     password: str | None = typer.Option(None, "--password", "-p"),
 ):
-    """Reply within an existing thread."""
+    """Reply within an existing thread. (alias: tr)"""
     if room is None or thread_id is None or message is None:
         console.print(ctx.get_help())
         raise typer.Exit(1)

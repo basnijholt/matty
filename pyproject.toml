@@ -46,6 +46,7 @@ dev = [
     "pytest-cov>=5.0.0",
     "mypy>=1.13.0",
     "types-aiofiles>=24.1.0",
+    "markdown-code-runner>=2.3.0",
 ]
 
 [build-system]
