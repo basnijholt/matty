@@ -217,7 +217,7 @@ async def _find_room(client: AsyncClient, room_query: str) -> tuple[str, str] | 
     rooms = await _get_rooms(client)
 
     for room in rooms:
-        if room_query == room.room_id or room_query.lower() in room.name.lower():
+        if room_query == room.room_id or room_query.lower() == room.name.lower():
             return room.room_id, room.name
 
     return None
@@ -397,7 +397,9 @@ def _display_messages_rich(messages: list[Message], room_name: str) -> None:
             else:
                 prefix = "[bold yellow]🧵[/bold yellow] "
         elif msg.thread_root_id:
-            prefix = "  ↳ "
+            # Show which thread this message belongs to
+            thread_simple_id = _get_or_create_id(msg.thread_root_id)
+            prefix = f"  ↳ [dim yellow]t{thread_simple_id}[/dim yellow] "
 
         # Create a short handle for the message (m1, m2, etc.)
         handle = f"[bold magenta]m{idx}[/bold magenta]"
@@ -420,13 +422,13 @@ def _display_messages_simple(messages: list[Message], room_name: str) -> None:
     for idx, msg in enumerate(messages, 1):
         time_str = msg.timestamp.strftime("%H:%M")
         handle = f"m{idx}"
-        thread_mark = (
-            " [THREAD]"
-            if msg.is_thread_root
-            else " [IN-THREAD]"
-            if msg.thread_root_id
-            else ""
-        )
+        thread_mark = ""
+        if msg.is_thread_root and msg.event_id:
+            thread_simple_id = _get_or_create_id(msg.event_id)
+            thread_mark = f" [THREAD t{thread_simple_id}]"
+        elif msg.thread_root_id:
+            thread_simple_id = _get_or_create_id(msg.thread_root_id)
+            thread_mark = f" [IN-THREAD t{thread_simple_id}]"
         print(f"{handle} [{time_str}] {msg.sender}: {msg.content}{thread_mark}")
 
 
