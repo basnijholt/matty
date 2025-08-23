@@ -22,6 +22,16 @@
 ## Installation
 
 ```bash
+uv tool install matty
+# or
+pipx install matty
+# or
+pip install matty
+```
+
+For development, clone the repo and install dependencies:
+
+```bash
 # Clone the repository
 git clone https://github.com/basnijholt/matrix-cli
 cd matrix-cli
