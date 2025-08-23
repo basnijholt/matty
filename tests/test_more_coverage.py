@@ -9,11 +9,9 @@ from nio import AsyncClient, RoomRedactResponse, RoomSendResponse
 from matty import (
     Message,
     OutputFormat,
-    ServerState,
     _build_message_content,
     _execute_messages_command,
     _get_relation,
-    _get_threads,
     _get_thread_messages,
     _is_relation_type,
     _send_message,
@@ -30,10 +28,10 @@ class TestReactionsAndRedactions:
         client = MagicMock(spec=AsyncClient)
         response = RoomSendResponse(event_id="$reaction123")
         client.room_send = AsyncMock(return_value=response)
-        
+
         result = await _send_reaction(client, "!room:matrix.org", "$msg123", "👍")
         assert result is True
-        
+
         # Verify reaction content
         call_args = client.room_send.call_args
         content = call_args[1]["content"]
@@ -46,7 +44,7 @@ class TestReactionsAndRedactions:
         """Test reaction send failure."""
         client = MagicMock(spec=AsyncClient)
         client.room_send = AsyncMock(side_effect=Exception("Network error"))
-        
+
         result = await _send_reaction(client, "!room:matrix.org", "$msg123", "👍")
         assert result is False
 
@@ -56,15 +54,13 @@ class TestReactionsAndRedactions:
         client = MagicMock(spec=AsyncClient)
         response = RoomRedactResponse(event_id="$redaction123")
         client.room_redact = AsyncMock(return_value=response)
-        
+
         # Directly test the client method since _send_redaction doesn't exist
         result = await client.room_redact("!room:matrix.org", "$msg456", reason="Mistake")
         assert result.event_id == "$redaction123"
-        
+
         # Verify redaction was called
-        client.room_redact.assert_called_once_with(
-            "!room:matrix.org", "$msg456", reason="Mistake"
-        )
+        client.room_redact.assert_called_once_with("!room:matrix.org", "$msg456", reason="Mistake")
 
 
 class TestThreadMessages:
@@ -74,9 +70,9 @@ class TestThreadMessages:
     async def test_get_thread_messages_simple(self):
         """Test getting thread messages."""
         from nio import RoomMessageText
-        
+
         client = MagicMock(spec=AsyncClient)
-        
+
         # Create mock thread messages
         msg1 = MagicMock(spec=RoomMessageText)
         msg1.sender = "@alice:matrix.org"
@@ -87,18 +83,18 @@ class TestThreadMessages:
             "content": {
                 "body": "Thread root",
                 "msgtype": "m.text",
-                "m.relates_to": {"rel_type": "m.thread", "event_id": "$root123"}
+                "m.relates_to": {"rel_type": "m.thread", "event_id": "$root123"},
             }
         }
-        
+
         mock_response = MagicMock()
         mock_response.chunk = [msg1]
-        
+
         client.room_messages = AsyncMock(return_value=mock_response)
-        
+
         with patch("matty._get_or_create_handle", return_value="m1"):
             messages = await _get_thread_messages(client, "!room:matrix.org", "$root123")
-        
+
         assert len(messages) > 0
 
 
@@ -114,7 +110,7 @@ class TestMessageContent:
             thread_root_id="$thread123",
             reply_to_id="$reply456",
         )
-        
+
         assert content["body"] == "Test message"
         assert content["formatted_body"] == "<b>Test message</b>"
         assert content["format"] == "org.matrix.custom.html"
@@ -133,7 +129,7 @@ class TestThreadExecution:
         with patch("matty._create_client") as mock_create:
             client = MagicMock(spec=AsyncClient)
             mock_create.return_value = client
-            
+
             with patch("matty._login", return_value=True):
                 with patch("matty._sync_client"):
                     with patch("matty._find_room", return_value=("!room:matrix.org", "Test Room")):
@@ -150,12 +146,16 @@ class TestThreadExecution:
                             ]
                             with patch("matty._get_thread_messages", return_value=messages):
                                 client.close = AsyncMock()
-                                
+
                                 await _execute_messages_command(
-                                    "Test Room", 10, "user", "pass", 
-                                    OutputFormat.simple, thread="$thread123"
+                                    "Test Room",
+                                    10,
+                                    "user",
+                                    "pass",
+                                    OutputFormat.simple,
+                                    thread="$thread123",
                                 )
-        
+
         captured = capsys.readouterr()
         assert "Test Room" in captured.out or "Thread" in captured.out
 
@@ -191,13 +191,12 @@ class TestEdgeCases:
         client = MagicMock(spec=AsyncClient)
         response = RoomSendResponse(event_id="$formatted123")
         client.room_send = AsyncMock(return_value=response)
-        
+
         result = await _send_message(
-            client, "!room:matrix.org", "Plain text",
-            formatted_body="<b>Bold text</b>"
+            client, "!room:matrix.org", "Plain text", formatted_body="<b>Bold text</b>"
         )
         assert result is True
-        
+
         # Verify formatted body was included
         call_args = client.room_send.call_args
         content = call_args[1]["content"]
