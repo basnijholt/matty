@@ -1,80 +1,53 @@
-name: Markdown Code Runner
+name: Update README.md
 
 on:
   push:
-    branches: [main]
-    paths:
-      - '**.md'
-      - '.github/workflows/markdown-code-runner.yml'
+    branches:
+      - main
   pull_request:
-    branches: [main]
-    paths:
-      - '**.md'
-  workflow_dispatch:
 
 jobs:
-  run-markdown-code:
+  update_readme:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
+      - name: Check out repository
+        uses: actions/checkout@v4
         with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
+          persist-credentials: false
+          fetch-depth: 0
 
       - name: Set up Python
-        run: uv python install 3.12
+        uses: actions/setup-python@v5
 
-      - name: Install dependencies
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Run markdown-code-runner
+        env:
+          TERM: dumb
+          NO_COLOR: 1
+          TERMINAL_WIDTH: 90
         run: |
-          uv sync --all-extras --dev
+          uvx --with . markdown-code-runner README.md
+          sed -i 's/[[:space:]]*$//' README.md
 
-      - name: Extract and run Python code from markdown files
+      - name: Commit updated README.md
+        id: commit
         run: |
-          set -e
-          echo "Extracting Python code blocks from markdown files..."
+          git add README.md
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          if git diff --quiet && git diff --staged --quiet; then
+            echo "No changes in README.md, skipping commit."
+            echo "commit_status=skipped" >> $GITHUB_ENV
+          else
+            git commit -m "Update README.md"
+            echo "commit_status=committed" >> $GITHUB_ENV
+          fi
 
-          # Find all markdown files
-          for file in $(find . -name "*.md" -type f); do
-            echo "Processing $file"
-
-            # Extract Python code blocks (```python or ```py)
-            awk '/^```python$|^```py$/,/^```$/ {
-              if (!/^```/) print
-            }' "$file" > temp_code.py
-
-            # Skip if no Python code found
-            if [ ! -s temp_code.py ]; then
-              echo "  No Python code blocks found in $file"
-              continue
-            fi
-
-            echo "  Running Python code from $file"
-
-            # Run the extracted code with uv run
-            # Continue on error to test all files
-            if uv run python temp_code.py; then
-              echo "  ✓ Code from $file executed successfully"
-            else
-              echo "  ✗ Code from $file failed to execute"
-              exit 1
-            fi
-
-            rm -f temp_code.py
-          done
-
-          echo "All markdown code blocks processed successfully!"
-
-      - name: Validate CLI examples in README
-        run: |
-          echo "Validating CLI command examples..."
-
-          # Test basic commands that should work
-          uv run python matrix_cli.py --help
-          uv run python matrix_cli.py rooms --help
-          uv run python matrix_cli.py messages --help
-          uv run python matrix_cli.py send --help
-
-          echo "✓ All CLI examples validated!"
+      - name: Push changes
+        if: env.commit_status == 'committed'
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.head_ref }}
