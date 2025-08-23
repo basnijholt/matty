@@ -465,6 +465,11 @@ class OutputFormat(str, Enum):
 # =============================================================================
 
 
+def _message_to_dict(msg: Message) -> dict:
+    """Convert a Message to a dictionary."""
+    return asdict(msg)
+
+
 def _load_config() -> Config:
     """Load configuration from environment variables."""
 
@@ -1792,6 +1797,358 @@ def reactions(
                 )
 
     asyncio.run(_reactions())
+
+
+@app.command("search")
+@app.command("find", hidden=True)
+def search(
+    room: str = typer.Argument(..., help="Room name or alias"),
+    query: str = typer.Argument(..., help="Search query"),
+    limit: int = typer.Option(100, "--limit", "-l", help="Number of messages to search"),
+    case_sensitive: bool = typer.Option(
+        False, "--case-sensitive", "-c", help="Case sensitive search"
+    ),
+    regex: bool = typer.Option(False, "--regex", "-r", help="Use regex pattern"),
+    username: str | None = typer.Option(None, "--username", "-u"),
+    password: str | None = typer.Option(None, "--password", "-p"),
+    format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f", help="Output format"),
+):
+    """Search for messages in a room containing specific text."""
+
+    async def _search():
+        config = _load_config()
+        if username:
+            config.username = username
+        if password:
+            config.password = password
+
+        if not config.username or not config.password:
+            console.print("[red]Username and password required[/red]")
+            return
+
+        client = await _create_client(config)
+
+        try:
+            if not await _login(client, config.password):
+                console.print("[red]Login failed[/red]")
+                return
+
+            await _sync_client(client)
+
+            room_info = await _find_room(client, room)
+            if not room_info:
+                console.print(f"[red]Room '{room}' not found[/red]")
+                return
+
+            room_id, room_name = room_info
+
+            console.print(f"[yellow]Searching in {room_name}...[/yellow]")
+            messages = await _get_messages(client, room_id, limit)
+
+            # Filter messages based on search query
+            matched_messages = []
+            for msg in messages:
+                if regex:
+                    flags = 0 if case_sensitive else re.IGNORECASE
+                    if re.search(query, msg.content, flags):
+                        matched_messages.append(msg)
+                else:
+                    content = msg.content if case_sensitive else msg.content.lower()
+                    search_term = query if case_sensitive else query.lower()
+                    if search_term in content:
+                        matched_messages.append(msg)
+
+            if not matched_messages:
+                console.print(f"[yellow]No messages found matching '{query}'[/yellow]")
+                return
+
+            if format == OutputFormat.rich:
+                table = Table(title=f"Search Results: '{query}' in {room_name}", show_lines=True)
+                table.add_column("Time", style="cyan", width=12)
+                table.add_column("Handle", style="dim", width=6)
+                table.add_column("Sender", style="green", width=15)
+                table.add_column("Message", style="white", overflow="fold")
+
+                for msg in matched_messages:
+                    # Highlight the search term in the message
+                    highlighted = msg.content
+                    if not regex:
+                        pattern = re.escape(query)
+                        flags = 0 if case_sensitive else re.IGNORECASE
+                        highlighted = re.sub(
+                            f"({pattern})",
+                            r"[bold yellow]\1[/bold yellow]",
+                            msg.content,
+                            flags=flags,
+                        )
+
+                    time_str = msg.timestamp.strftime("%H:%M:%S")
+                    table.add_row(time_str, msg.handle or "", msg.sender, highlighted)
+
+                console.print(table)
+                console.print(f"[green]Found {len(matched_messages)} matching messages[/green]")
+
+            elif format == OutputFormat.simple:
+                print(f"=== Search Results: '{query}' in {room_name} ===")
+                for msg in matched_messages:
+                    time_str = msg.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                    print(f"[{time_str}] {msg.handle or 'N/A'} | {msg.sender}: {msg.content}")
+                print(f"\nFound {len(matched_messages)} matching messages")
+
+            elif format == OutputFormat.json:
+                print(
+                    json.dumps(
+                        {
+                            "room": room_name,
+                            "query": query,
+                            "matches": len(matched_messages),
+                            "messages": [_message_to_dict(msg) for msg in matched_messages],
+                        },
+                        indent=2,
+                        default=str,
+                    )
+                )
+        finally:
+            await client.close()
+
+    asyncio.run(_search())
+
+
+@app.command("export")
+@app.command("save", hidden=True)
+def export(
+    room: str = typer.Argument(..., help="Room name or alias"),
+    output_path: Path = typer.Option(
+        None, "--output", "-o", help="Output file path (default: room_name_timestamp.format)"
+    ),
+    limit: int = typer.Option(1000, "--limit", "-l", help="Number of messages to export"),
+    format: str = typer.Option(
+        "markdown", "--format", "-f", help="Export format: markdown, json, text"
+    ),
+    include_reactions: bool = typer.Option(
+        True, "--reactions/--no-reactions", help="Include reactions"
+    ),
+    include_threads: bool = typer.Option(
+        True, "--threads/--no-threads", help="Include thread messages"
+    ),
+    username: str | None = typer.Option(None, "--username", "-u"),
+    password: str | None = typer.Option(None, "--password", "-p"),
+):
+    """Export room messages to a file in various formats."""
+
+    async def _export():
+        nonlocal output_path
+        config = _load_config()
+        if username:
+            config.username = username
+        if password:
+            config.password = password
+
+        if not config.username or not config.password:
+            console.print("[red]Username and password required[/red]")
+            return
+
+        client = await _create_client(config)
+
+        try:
+            if not await _login(client, config.password):
+                console.print("[red]Login failed[/red]")
+                return
+
+            await _sync_client(client)
+
+            room_info = await _find_room(client, room)
+            if not room_info:
+                console.print(f"[red]Room '{room}' not found[/red]")
+                return
+
+            room_id, room_name = room_info
+
+            # Generate default filename if not provided
+            if not output_path:
+                timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+                safe_room_name = re.sub(r"[^\w\s-]", "", room_name).strip().replace(" ", "_")
+                extension = (
+                    "md" if format == "markdown" else format if format in ["json", "txt"] else "txt"
+                )
+                output_path = Path(f"{safe_room_name}_{timestamp}.{extension}")
+
+            console.print(f"[yellow]Exporting {room_name} to {output_path}...[/yellow]")
+
+            # Get messages
+            messages = await _get_messages(client, room_id, limit)
+
+            # Get threads if requested
+            thread_messages = {}
+            if include_threads:
+                threads = await _get_threads(client, room_id, 100)
+                for thread_id, _ in threads:
+                    thread_msgs = await _get_thread_messages(client, room_id, thread_id, 100)
+                    if thread_msgs:
+                        thread_messages[thread_id] = thread_msgs
+
+            # Export based on format
+            if format == "markdown":
+                content = f"# {room_name}\n\n"
+                content += (
+                    f"*Exported on {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S UTC')}*\n\n"
+                )
+                content += "---\n\n"
+
+                for msg in reversed(messages):  # Show oldest first
+                    time_str = msg.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                    content += f"**{msg.sender}** - *{time_str}*\n\n"
+                    content += f"{msg.content}\n"
+
+                    if include_reactions and msg.reactions:
+                        reactions_str = " ".join(
+                            [f"{emoji}({len(users)})" for emoji, users in msg.reactions.items()]
+                        )
+                        content += f"\n> Reactions: {reactions_str}\n"
+
+                    if msg.event_id in thread_messages:
+                        content += "\n> **Thread:**\n"
+                        for thread_msg in thread_messages[msg.event_id]:
+                            thread_time = thread_msg.timestamp.strftime("%H:%M")
+                            content += f"> > **{thread_msg.sender}** ({thread_time}): {thread_msg.content}\n"
+
+                    content += "\n---\n\n"
+
+                output_path.write_text(content)
+
+            elif format == "json":
+                export_data = {
+                    "room": room_name,
+                    "exported_at": datetime.now(UTC).isoformat(),
+                    "message_count": len(messages),
+                    "messages": [_message_to_dict(msg) for msg in messages],
+                }
+                if include_threads and thread_messages:
+                    export_data["threads"] = {
+                        thread_id: [_message_to_dict(msg) for msg in msgs]
+                        for thread_id, msgs in thread_messages.items()
+                    }
+                output_path.write_text(json.dumps(export_data, indent=2, default=str))
+
+            elif format == "text":
+                content = f"{room_name}\n{'=' * len(room_name)}\n\n"
+                content += f"Exported on {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S UTC')}\n\n"
+
+                for msg in reversed(messages):
+                    time_str = msg.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                    content += f"[{time_str}] {msg.sender}: {msg.content}\n"
+
+                    if include_reactions and msg.reactions:
+                        for emoji, users in msg.reactions.items():
+                            content += f"  {emoji}: {', '.join(users)}\n"
+
+                    if msg.event_id in thread_messages:
+                        content += "  Thread:\n"
+                        for thread_msg in thread_messages[msg.event_id]:
+                            thread_time = thread_msg.timestamp.strftime("%H:%M")
+                            content += (
+                                f"    [{thread_time}] {thread_msg.sender}: {thread_msg.content}\n"
+                            )
+
+                    content += "\n"
+
+                output_path.write_text(content)
+
+            console.print(f"[green]✓ Exported {len(messages)} messages to {output_path}[/green]")
+        finally:
+            await client.close()
+
+    asyncio.run(_export())
+
+
+@app.command("watch")
+@app.command("w", hidden=True)
+def watch(
+    room: str = typer.Argument(..., help="Room name or alias to watch"),
+    interval: int = typer.Option(2, "--interval", "-i", help="Refresh interval in seconds"),
+    show_reactions: bool = typer.Option(True, "--reactions/--no-reactions", help="Show reactions"),
+    username: str | None = typer.Option(None, "--username", "-u"),
+    password: str | None = typer.Option(None, "--password", "-p"),
+):
+    """Watch a room for new messages in real-time."""
+
+    async def _watch():
+        config = _load_config()
+        if username:
+            config.username = username
+        if password:
+            config.password = password
+
+        if not config.username or not config.password:
+            console.print("[red]Username and password required[/red]")
+            return
+
+        client = await _create_client(config)
+
+        try:
+            if not await _login(client, config.password):
+                console.print("[red]Login failed[/red]")
+                return
+
+            await _sync_client(client)
+
+            room_info = await _find_room(client, room)
+            if not room_info:
+                console.print(f"[red]Room '{room}' not found[/red]")
+                return
+
+            room_id, room_name = room_info
+
+            console.print(f"[green]Watching {room_name} (Press Ctrl+C to stop)...[/green]")
+            console.print("=" * 60)
+
+            seen_events = set()
+
+            try:
+                while True:
+                    messages = await _get_messages(client, room_id, 20)
+
+                    new_messages = []
+                    for msg in messages:
+                        if msg.event_id and msg.event_id not in seen_events:
+                            new_messages.append(msg)
+                            seen_events.add(msg.event_id)
+
+                    # Display new messages
+                    for msg in reversed(new_messages):  # Show oldest first
+                        time_str = msg.timestamp.strftime("%H:%M:%S")
+
+                        # Format message with color
+                        sender_color = "cyan" if msg.sender != client.user_id else "green"
+                        console.print(f"[{sender_color}]{msg.sender}[/{sender_color}] [{time_str}]")
+
+                        # Show thread indicator
+                        prefix = ""
+                        if msg.thread_root_id:
+                            prefix = "  ↳ "
+                        elif msg.reply_to_event_id:
+                            prefix = "  → "
+
+                        console.print(f"{prefix}{msg.content}")
+
+                        # Show reactions if enabled
+                        if show_reactions and msg.reactions:
+                            reactions_str = " ".join(
+                                [f"{emoji}({len(users)})" for emoji, users in msg.reactions.items()]
+                            )
+                            console.print(f"  [dim]{reactions_str}[/dim]")
+
+                        console.print()
+
+                    # Wait for next refresh
+                    await asyncio.sleep(interval)
+
+            except KeyboardInterrupt:
+                console.print("\n[yellow]Stopped watching.[/yellow]")
+        finally:
+            await client.close()
+
+    asyncio.run(_watch())
 
 
 if __name__ == "__main__":
