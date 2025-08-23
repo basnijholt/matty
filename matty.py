@@ -641,47 +641,63 @@ def rooms(
 
 @app.command()
 def messages(
-    room: str = typer.Argument(..., help="Room ID or name"),
+    ctx: typer.Context,
+    room: str = typer.Argument(None, help="Room ID or name"),
     limit: int = typer.Option(20, "--limit", "-l"),
     username: str | None = typer.Option(None, "--username", "-u"),
     password: str | None = typer.Option(None, "--password", "-p"),
     format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
 ):
     """Show recent messages from a room."""
+    if room is None:
+        console.print(ctx.get_help())
+        raise typer.Exit(1)
     asyncio.run(_execute_messages_command(room, limit, username, password, format))
 
 
 @app.command()
 def users(
-    room: str = typer.Argument(..., help="Room ID or name"),
+    ctx: typer.Context,
+    room: str = typer.Argument(None, help="Room ID or name"),
     username: str | None = typer.Option(None, "--username", "-u"),
     password: str | None = typer.Option(None, "--password", "-p"),
     format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
 ):
     """Show users in a room."""
+    if room is None:
+        console.print(ctx.get_help())
+        raise typer.Exit(1)
     asyncio.run(_execute_users_command(room, username, password, format))
 
 
 @app.command()
 def send(
-    room: str = typer.Argument(..., help="Room ID or name"),
-    message: str = typer.Argument(..., help="Message to send"),
+    ctx: typer.Context,
+    room: str = typer.Argument(None, help="Room ID or name"),
+    message: str = typer.Argument(None, help="Message to send"),
     username: str | None = typer.Option(None, "--username", "-u"),
     password: str | None = typer.Option(None, "--password", "-p"),
 ):
     """Send a message to a room."""
+    if room is None or message is None:
+        console.print(ctx.get_help())
+        raise typer.Exit(1)
     asyncio.run(_execute_send_command(room, message, username, password))
 
 
 @app.command()
 def threads(
-    room: str = typer.Argument(..., help="Room ID or name"),
+    ctx: typer.Context,
+    room: str = typer.Argument(None, help="Room ID or name"),
     limit: int = typer.Option(50, "--limit", "-l", help="Number of messages to check"),
     username: str | None = typer.Option(None, "--username", "-u"),
     password: str | None = typer.Option(None, "--password", "-p"),
     format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
 ):
     """List all threads in a room."""
+    if room is None:
+        console.print(ctx.get_help())
+        raise typer.Exit(1)
 
     async def _threads():
         config = _load_config()
@@ -763,9 +779,10 @@ def threads(
 
 @app.command()
 def thread(
-    room: str = typer.Argument(..., help="Room ID or name"),
+    ctx: typer.Context,
+    room: str = typer.Argument(None, help="Room ID or name"),
     thread_id: str = typer.Argument(
-        ..., help="Thread ID (t1, t2, etc.) or full Matrix ID"
+        None, help="Thread ID (t1, t2, etc.) or full Matrix ID"
     ),
     limit: int = typer.Option(50, "--limit", "-l", help="Number of messages to fetch"),
     username: str | None = typer.Option(None, "--username", "-u"),
@@ -773,6 +790,9 @@ def thread(
     format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
 ):
     """Show all messages in a specific thread."""
+    if room is None or thread_id is None:
+        console.print(ctx.get_help())
+        raise typer.Exit(1)
 
     async def _thread():
         config = _load_config()
@@ -873,13 +893,19 @@ def thread(
 
 @app.command()
 def reply(
-    room: str = typer.Argument(..., help="Room ID or name"),
-    handle: str = typer.Argument(..., help="Message handle (m1, m2, etc.) to reply to"),
-    message: str = typer.Argument(..., help="Reply message"),
+    ctx: typer.Context,
+    room: str = typer.Argument(None, help="Room ID or name"),
+    handle: str = typer.Argument(
+        None, help="Message handle (m1, m2, etc.) to reply to"
+    ),
+    message: str = typer.Argument(None, help="Reply message"),
     username: str | None = typer.Option(None, "--username", "-u"),
     password: str | None = typer.Option(None, "--password", "-p"),
 ):
     """Reply to a specific message using its handle."""
+    if room is None or handle is None or message is None:
+        console.print(ctx.get_help())
+        raise typer.Exit(1)
 
     async def _reply():
         config = _load_config()
@@ -928,15 +954,19 @@ def reply(
 
 @app.command(name="thread-start")
 def thread_start(
-    room: str = typer.Argument(..., help="Room ID or name"),
+    ctx: typer.Context,
+    room: str = typer.Argument(None, help="Room ID or name"),
     handle: str = typer.Argument(
-        ..., help="Message handle (m1, m2, etc.) to start thread from"
+        None, help="Message handle (m1, m2, etc.) to start thread from"
     ),
-    message: str = typer.Argument(..., help="First message in the thread"),
+    message: str = typer.Argument(None, help="First message in the thread"),
     username: str | None = typer.Option(None, "--username", "-u"),
     password: str | None = typer.Option(None, "--password", "-p"),
 ):
     """Start a new thread from a message using its handle."""
+    if room is None or handle is None or message is None:
+        console.print(ctx.get_help())
+        raise typer.Exit(1)
 
     async def _thread_start():
         config = _load_config()
@@ -986,15 +1016,19 @@ def thread_start(
 
 @app.command(name="thread-reply")
 def thread_reply(
-    room: str = typer.Argument(..., help="Room ID or name"),
+    ctx: typer.Context,
+    room: str = typer.Argument(None, help="Room ID or name"),
     thread_id: str = typer.Argument(
-        ..., help="Thread ID (t1, t2, etc.) or full Matrix ID"
+        None, help="Thread ID (t1, t2, etc.) or full Matrix ID"
     ),
-    message: str = typer.Argument(..., help="Reply message"),
+    message: str = typer.Argument(None, help="Reply message"),
     username: str | None = typer.Option(None, "--username", "-u"),
     password: str | None = typer.Option(None, "--password", "-p"),
 ):
     """Reply within an existing thread."""
+    if room is None or thread_id is None or message is None:
+        console.print(ctx.get_help())
+        raise typer.Exit(1)
 
     async def _thread_reply():
         config = _load_config()
