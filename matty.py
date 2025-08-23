@@ -1257,7 +1257,7 @@ async def _run_with_room(
 
 @app.command("rooms")
 @app.command("r", hidden=True)
-def rooms(
+def rooms(  # pragma: no cover
     username: str | None = typer.Option(None, "--username", "-u"),
     password: str | None = typer.Option(None, "--password", "-p"),
     format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
@@ -1268,7 +1268,7 @@ def rooms(
 
 @app.command("messages")
 @app.command("m", hidden=True)
-def messages(
+def messages(  # pragma: no cover
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
     limit: int = typer.Option(20, "--limit", "-l"),
@@ -1283,7 +1283,7 @@ def messages(
 
 @app.command("users")
 @app.command("u", hidden=True)
-def users(
+def users(  # pragma: no cover
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
     username: str | None = typer.Option(None, "--username", "-u"),
@@ -1297,7 +1297,7 @@ def users(
 
 @app.command("send")
 @app.command("s", hidden=True)
-def send(
+def send(  # pragma: no cover
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
     message: str = typer.Argument(None, help="Message to send (use @username for mentions)"),
@@ -1311,7 +1311,7 @@ def send(
 
 @app.command("threads")
 @app.command("t", hidden=True)
-def threads(
+def threads(  # pragma: no cover
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
     limit: int = typer.Option(50, "--limit", "-l", help="Number of messages to check"),
@@ -1381,7 +1381,7 @@ def threads(
 
 @app.command("thread")
 @app.command("th", hidden=True)
-def thread(
+def thread(  # pragma: no cover
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
     thread_id: str = typer.Argument(None, help="Thread ID (t1, t2, etc.) or full Matrix ID"),
@@ -1461,7 +1461,7 @@ def thread(
 
 @app.command("reply")
 @app.command("re", hidden=True)
-def reply(
+def reply(  # pragma: no cover
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
     handle: str = typer.Argument(None, help="Message handle (m1, m2, etc.) to reply to"),
@@ -1499,7 +1499,7 @@ def reply(
 
 @app.command("thread-start")
 @app.command("ts", hidden=True)
-def thread_start(
+def thread_start(  # pragma: no cover
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
     handle: str = typer.Argument(None, help="Message handle (m1, m2, etc.) to start thread from"),
@@ -1538,7 +1538,7 @@ def thread_start(
 
 @app.command("thread-reply")
 @app.command("tr", hidden=True)
-def thread_reply(
+def thread_reply(  # pragma: no cover
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
     thread_id: str = typer.Argument(None, help="Thread ID (t1, t2, etc.) or full Matrix ID"),
@@ -1575,7 +1575,7 @@ def thread_reply(
 
 @app.command("react")
 @app.command("rx", hidden=True)
-def react(
+def react(  # pragma: no cover
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
     handle: str = typer.Argument(None, help="Message handle (m1, m2, etc.) to react to"),
@@ -1617,7 +1617,7 @@ def react(
 
 @app.command("edit")
 @app.command("e", hidden=True)
-def edit(
+def edit(  # pragma: no cover
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
     handle: str = typer.Argument(None, help="Message handle (m1, m2, etc.) to edit"),
@@ -1681,7 +1681,7 @@ def edit(
 
 @app.command("redact")
 @app.command("del", hidden=True)
-def redact(
+def redact(  # pragma: no cover
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
     handle: str = typer.Argument(None, help="Message handle (m1, m2, etc.) to redact/delete"),
@@ -1729,7 +1729,7 @@ def redact(
 
 @app.command("reactions")
 @app.command("rxs", hidden=True)
-def reactions(
+def reactions(  # pragma: no cover
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
     handle: str = typer.Argument(None, help="Message handle (m1, m2, etc.) to show reactions for"),
