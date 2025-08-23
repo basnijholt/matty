@@ -1,20 +1,169 @@
 [project]
-name = "matrixtui"
+name = "matrix-cli"
 version = "0.1.0"
-description = "Add your description here"
+description = "A simple, AI-friendly Matrix chat client with CLI interface"
 readme = "README.md"
 requires-python = ">=3.12"
+license = {text = "MIT"}
+authors = [
+    {name = "Bas Nijholt", email = "bas@nijho.lt"},
+]
+keywords = ["matrix", "chat", "cli", "client", "ai-friendly"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Communications :: Chat",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Environment :: Console",
+]
 dependencies = [
     "aiofiles>=24.1.0",
     "matrix-nio>=0.25.2",
     "pydantic>=2.11.7",
     "pydantic-settings>=2.10.1",
     "python-dotenv>=1.1.1",
-    "textual>=5.3.0",
+    "rich>=13.0.0",
     "typer>=0.16.1",
 ]
+
+[project.scripts]
+matrix-cli = "matrix_cli:app"
+
+[project.urls]
+Homepage = "https://github.com/basnijholt/matrix-cli"
+Documentation = "https://github.com/basnijholt/matrix-cli#readme"
+Repository = "https://github.com/basnijholt/matrix-cli"
+Issues = "https://github.com/basnijholt/matrix-cli/issues"
 
 [dependency-groups]
 dev = [
     "pre-commit>=4.3.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=5.0.0",
+    "mypy>=1.13.0",
+    "types-aiofiles>=24.1.0",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.coverage.run]
+source = ["matrix_cli"]
+omit = ["tests/*", "test_*.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "raise AssertionError",
+    "@abstractmethod",
+]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_any_unimported = false
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q --strict-markers"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+fix = true
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "C4",   # flake8-comprehensions
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "ARG",  # flake8-unused-arguments
+    "SIM",  # flake8-simplify
+    "TCH",  # flake8-type-checking
+    "RUF",  # Ruff-specific rules
+    "PL",   # Pylint
+    "TRY",  # tryceratops
+    "FLY",  # flynt
+    "PERF", # perflint
+    "RET",  # flake8-return
+    "RSE",  # flake8-raise
+    "SLF",  # flake8-self
+    "DTZ",  # flake8-datetimez
+    "PIE",  # flake8-pie
+    "ISC",  # flake8-implicit-str-concat
+    "C90",  # mccabe complexity
+    "T20",  # flake8-print
+    "Q",    # flake8-quotes
+    "TID",  # flake8-tidy-imports
+    "PTH",  # flake8-use-pathlib
+    "N",    # pep8-naming
+    "EM",   # flake8-errmsg
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "B008",   # do not perform function calls in argument defaults
+    "C901",   # too complex
+    "PLR0913", # too many arguments
+    "PLR0912", # too many branches
+    "PLR0915", # too many statements
+    "PLR2004", # magic value comparison
+    "PLC0208", # iteration over set literal
+    "SIM117",  # multiple-with-statements
+    "TRY003",  # long exception messages
+    "EM101",   # raw string in exception
+    "EM102",   # f-string in exception
+    "UP007",   # use X | Y for union types (keep Optional for now)
+    "RET504",  # unnecessary assign before return
+    "RET505",  # unnecessary else after return
+    "TID252",  # relative imports
+    "T201",    # print allowed in CLI
+]
+unfixable = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.ruff.lint.isort]
+known-first-party = ["matrix_cli"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*" = ["PLR2004", "S101", "TID252", "D"]
+"test_*.py" = ["PLR2004", "S101", "TID252", "D"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.ruff.lint.pylint]
+max-args = 8
+max-branches = 15
+max-returns = 10
+max-statements = 50

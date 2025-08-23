@@ -4,17 +4,16 @@
 import asyncio
 import json
 import os
-from datetime import datetime
-from typing import Optional, List, Dict, Tuple
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 
 import typer
 from nio import AsyncClient, LoginResponse, RoomMessageText
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
+from rich.table import Table
 
 app = typer.Typer(help="Functional Matrix CLI client")
 console = Console()
@@ -22,8 +21,8 @@ console = Console()
 # Global ID mapping storage
 ID_MAP_FILE = Path.home() / ".matrix_cli_ids.json"
 _id_counter = 0
-_id_to_matrix: Dict[int, str] = {}
-_matrix_to_id: Dict[str, int] = {}
+_id_to_matrix: dict[int, str] = {}
+_matrix_to_id: dict[str, int] = {}
 
 
 # =============================================================================
@@ -33,11 +32,11 @@ _matrix_to_id: Dict[str, int] = {}
 
 def _load_id_mappings() -> None:
     """Load ID mappings from persistent storage."""
-    global _id_counter, _id_to_matrix, _matrix_to_id
+    global _id_counter, _id_to_matrix, _matrix_to_id  # noqa: PLW0603
 
     if ID_MAP_FILE.exists():
         try:
-            with open(ID_MAP_FILE, "r") as f:
+            with ID_MAP_FILE.open() as f:
                 data = json.load(f)
                 _id_counter = data.get("counter", 0)
                 _id_to_matrix = {
@@ -56,7 +55,7 @@ def _save_id_mappings() -> None:
             "id_to_matrix": _id_to_matrix,
             "matrix_to_id": _matrix_to_id,
         }
-        with open(ID_MAP_FILE, "w") as f:
+        with ID_MAP_FILE.open("w") as f:
             json.dump(data, f, indent=2)
     except Exception as e:
         console.print(f"[yellow]Warning: Could not save ID mappings: {e}[/yellow]")
@@ -64,7 +63,7 @@ def _save_id_mappings() -> None:
 
 def _get_or_create_id(matrix_id: str) -> int:
     """Get existing simple ID or create new one for a Matrix ID."""
-    global _id_counter
+    global _id_counter  # noqa: PLW0603
 
     if not _id_to_matrix:  # First run, load from disk
         _load_id_mappings()
@@ -84,7 +83,7 @@ def _get_or_create_id(matrix_id: str) -> int:
     return simple_id
 
 
-def _resolve_id(id_or_matrix: str) -> Optional[str]:
+def _resolve_id(id_or_matrix: str) -> str | None:
     """Resolve a simple ID or Matrix ID to a Matrix ID."""
     if not _id_to_matrix:  # First run, load from disk
         _load_id_mappings()
@@ -97,7 +96,7 @@ def _resolve_id(id_or_matrix: str) -> Optional[str]:
         pass
 
     # Check if it's a Matrix ID (starts with $ or !)
-    if id_or_matrix.startswith("$") or id_or_matrix.startswith("!"):
+    if id_or_matrix.startswith(("$", "!")):
         return id_or_matrix
 
     return None
@@ -113,8 +112,8 @@ class Config:
     """Configuration from environment."""
 
     homeserver: str = "https://matrix.org"
-    username: Optional[str] = None
-    password: Optional[str] = None
+    username: str | None = None
+    password: str | None = None
     ssl_verify: bool = True
 
 
@@ -125,8 +124,8 @@ class Room:
     room_id: str
     name: str
     member_count: int
-    topic: Optional[str] = None
-    users: List[str] = field(default_factory=list)
+    topic: str | None = None
+    users: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -137,11 +136,9 @@ class Message:
     content: str
     timestamp: datetime
     room_id: str
-    event_id: Optional[str] = None
-    thread_root_id: Optional[str] = (
-        None  # ID of the root message if this is in a thread
-    )
-    reply_to_id: Optional[str] = None  # ID of message this replies to
+    event_id: str | None = None
+    thread_root_id: str | None = None  # ID of the root message if this is in a thread
+    reply_to_id: str | None = None  # ID of message this replies to
     is_thread_root: bool = False  # True if this message started a thread
 
 
@@ -160,7 +157,7 @@ class OutputFormat(str, Enum):
 
 def _load_config() -> Config:
     """Load configuration from environment variables."""
-    from dotenv import load_dotenv
+    from dotenv import load_dotenv  # noqa: PLC0415
 
     load_dotenv()
 
@@ -177,7 +174,7 @@ async def _create_client(config: Config) -> AsyncClient:
     return AsyncClient(config.homeserver, config.username, ssl=config.ssl_verify)
 
 
-async def _login(client: AsyncClient, username: str, password: str) -> bool:
+async def _login(client: AsyncClient, username: str, password: str) -> bool:  # noqa: ARG001
     """Perform Matrix login."""
     try:
         response = await client.login(password)
@@ -192,7 +189,7 @@ async def _sync_client(client: AsyncClient, timeout: int = 10000) -> None:
     await client.sync(timeout=timeout)
 
 
-async def _get_rooms(client: AsyncClient) -> List[Room]:
+async def _get_rooms(client: AsyncClient) -> list[Room]:
     """Get list of rooms from client."""
     await _sync_client(client)
 
@@ -211,7 +208,7 @@ async def _get_rooms(client: AsyncClient) -> List[Room]:
     return rooms
 
 
-async def _find_room(client: AsyncClient, room_query: str) -> Optional[Tuple[str, str]]:
+async def _find_room(client: AsyncClient, room_query: str) -> tuple[str, str] | None:
     """Find room by ID or name. Returns (room_id, room_name) or None."""
     rooms = await _get_rooms(client)
 
@@ -224,7 +221,7 @@ async def _find_room(client: AsyncClient, room_query: str) -> Optional[Tuple[str
 
 async def _get_messages(
     client: AsyncClient, room_id: str, limit: int = 20
-) -> List[Message]:
+) -> list[Message]:
     """Fetch messages from a room, including thread information."""
     try:
         response = await client.room_messages(room_id, limit=limit)
@@ -257,7 +254,9 @@ async def _get_messages(
                     Message(
                         sender=event.sender,
                         content=event.body,
-                        timestamp=datetime.fromtimestamp(event.server_timestamp / 1000),
+                        timestamp=datetime.fromtimestamp(
+                            event.server_timestamp / 1000, tz=UTC
+                        ),
                         room_id=room_id,
                         event_id=event.event_id,
                         thread_root_id=thread_root_id,
@@ -280,7 +279,7 @@ async def _get_messages(
 
 async def _get_threads(
     client: AsyncClient, room_id: str, limit: int = 50
-) -> List[Message]:
+) -> list[Message]:
     """Get all thread root messages in a room."""
     messages = await _get_messages(client, room_id, limit)
     return [msg for msg in messages if msg.is_thread_root]
@@ -288,18 +287,14 @@ async def _get_threads(
 
 async def _get_thread_messages(
     client: AsyncClient, room_id: str, thread_id: str, limit: int = 50
-) -> List[Message]:
+) -> list[Message]:
     """Get all messages in a specific thread."""
     messages = await _get_messages(client, room_id, limit)
 
     # Find the thread root
-    thread_messages = []
-
-    for msg in messages:
-        if msg.event_id == thread_id:
-            thread_messages.append(msg)
-        elif msg.thread_root_id == thread_id:
-            thread_messages.append(msg)
+    thread_messages = [
+        msg for msg in messages if thread_id in (msg.event_id, msg.thread_root_id)
+    ]
 
     return sorted(thread_messages, key=lambda m: m.timestamp)
 
@@ -308,8 +303,8 @@ async def _send_message(
     client: AsyncClient,
     room_id: str,
     message: str,
-    thread_root_id: Optional[str] = None,
-    reply_to_id: Optional[str] = None,
+    thread_root_id: str | None = None,
+    reply_to_id: str | None = None,
 ) -> bool:
     """Send a message to a room, optionally as a thread reply or regular reply."""
     try:
@@ -329,7 +324,7 @@ async def _send_message(
                 content["m.relates_to"]["m.in_reply_to"] = {"event_id": reply_to_id}
 
         await client.room_send(room_id, message_type="m.room.message", content=content)
-        return True
+        return True  # noqa: TRY300
     except Exception as e:
         console.print(f"[red]Failed to send: {e}[/red]")
         return False
@@ -337,14 +332,11 @@ async def _send_message(
 
 async def _get_message_by_handle(
     client: AsyncClient, room_id: str, handle: str, limit: int = 20
-) -> Optional[Message]:
+) -> Message | None:
     """Get a message by its handle (m1, m2, etc.) from recent messages."""
     # Extract number from handle (m1 -> 1)
     try:
-        if handle.startswith("m"):
-            idx = int(handle[1:]) - 1  # Convert to 0-based index
-        else:
-            idx = int(handle) - 1
+        idx = int(handle[1:]) - 1 if handle.startswith("m") else int(handle) - 1
     except ValueError:
         return None
 
@@ -359,7 +351,7 @@ async def _get_message_by_handle(
 # =============================================================================
 
 
-def _display_rooms_rich(rooms: List[Room]) -> None:
+def _display_rooms_rich(rooms: list[Room]) -> None:
     """Display rooms in rich table format."""
     table = Table(title="Matrix Rooms", show_lines=True)
     table.add_column("#", style="cyan", width=3)
@@ -373,18 +365,18 @@ def _display_rooms_rich(rooms: List[Room]) -> None:
     console.print(table)
 
 
-def _display_rooms_simple(rooms: List[Room]) -> None:
+def _display_rooms_simple(rooms: list[Room]) -> None:
     """Display rooms in simple text format."""
     for room in rooms:
         print(f"{room.name} ({room.room_id}) - {room.member_count} members")
 
 
-def _display_rooms_json(rooms: List[Room]) -> None:
+def _display_rooms_json(rooms: list[Room]) -> None:
     """Display rooms in JSON format."""
     print(json.dumps([asdict(room) for room in rooms], indent=2, default=str))
 
 
-def _display_messages_rich(messages: List[Message], room_name: str) -> None:
+def _display_messages_rich(messages: list[Message], room_name: str) -> None:
     """Display messages in rich format with thread indicators and message handles."""
     console.print(Panel(f"[bold cyan]{room_name}[/bold cyan]", expand=False))
 
@@ -418,7 +410,7 @@ def _display_messages_rich(messages: List[Message], room_name: str) -> None:
         )
 
 
-def _display_messages_simple(messages: List[Message], room_name: str) -> None:
+def _display_messages_simple(messages: list[Message], room_name: str) -> None:
     """Display messages in simple format with handles."""
     print(f"=== {room_name} ===")
     for idx, msg in enumerate(messages, 1):
@@ -434,13 +426,13 @@ def _display_messages_simple(messages: List[Message], room_name: str) -> None:
         print(f"{handle} [{time_str}] {msg.sender}: {msg.content}{thread_mark}")
 
 
-def _display_messages_json(messages: List[Message], room_name: str) -> None:
+def _display_messages_json(messages: list[Message], room_name: str) -> None:
     """Display messages in JSON format."""
     data = {"room": room_name, "messages": [asdict(msg) for msg in messages]}
     print(json.dumps(data, indent=2, default=str))
 
 
-def _display_users_rich(users: List[str], room_name: str) -> None:
+def _display_users_rich(users: list[str], room_name: str) -> None:
     """Display users in rich table format."""
     table = Table(title=f"Users in {room_name}", show_lines=True)
     table.add_column("#", style="cyan", width=3)
@@ -452,14 +444,14 @@ def _display_users_rich(users: List[str], room_name: str) -> None:
     console.print(table)
 
 
-def _display_users_simple(users: List[str], room_name: str) -> None:
+def _display_users_simple(users: list[str], room_name: str) -> None:
     """Display users in simple format."""
     print(f"=== Users in {room_name} ===")
     for user in users:
         print(user)
 
 
-def _display_users_json(users: List[str], room_name: str) -> None:
+def _display_users_json(users: list[str], room_name: str) -> None:
     """Display users in JSON format."""
     print(json.dumps({"room": room_name, "users": users}, indent=2))
 
@@ -470,8 +462,8 @@ def _display_users_json(users: List[str], room_name: str) -> None:
 
 
 async def _execute_rooms_command(
-    username: Optional[str] = None,
-    password: Optional[str] = None,
+    username: str | None = None,
+    password: str | None = None,
     format: OutputFormat = OutputFormat.rich,
 ) -> None:
     """Execute the rooms command."""
@@ -506,8 +498,8 @@ async def _execute_rooms_command(
 async def _execute_messages_command(
     room: str,
     limit: int = 20,
-    username: Optional[str] = None,
-    password: Optional[str] = None,
+    username: str | None = None,
+    password: str | None = None,
     format: OutputFormat = OutputFormat.rich,
 ) -> None:
     """Execute the messages command."""
@@ -547,8 +539,8 @@ async def _execute_messages_command(
 
 async def _execute_users_command(
     room: str,
-    username: Optional[str] = None,
-    password: Optional[str] = None,
+    username: str | None = None,
+    password: str | None = None,
     format: OutputFormat = OutputFormat.rich,
 ) -> None:
     """Execute the users command."""
@@ -593,8 +585,8 @@ async def _execute_users_command(
 async def _execute_send_command(
     room: str,
     message: str,
-    username: Optional[str] = None,
-    password: Optional[str] = None,
+    username: str | None = None,
+    password: str | None = None,
 ) -> None:
     """Execute the send command."""
     config = _load_config()
@@ -635,8 +627,8 @@ async def _execute_send_command(
 
 @app.command()
 def rooms(
-    username: Optional[str] = typer.Option(None, "--username", "-u"),
-    password: Optional[str] = typer.Option(None, "--password", "-p"),
+    username: str | None = typer.Option(None, "--username", "-u"),
+    password: str | None = typer.Option(None, "--password", "-p"),
     format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
 ):
     """List all joined rooms."""
@@ -647,8 +639,8 @@ def rooms(
 def messages(
     room: str = typer.Argument(..., help="Room ID or name"),
     limit: int = typer.Option(20, "--limit", "-l"),
-    username: Optional[str] = typer.Option(None, "--username", "-u"),
-    password: Optional[str] = typer.Option(None, "--password", "-p"),
+    username: str | None = typer.Option(None, "--username", "-u"),
+    password: str | None = typer.Option(None, "--password", "-p"),
     format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
 ):
     """Show recent messages from a room."""
@@ -658,8 +650,8 @@ def messages(
 @app.command()
 def users(
     room: str = typer.Argument(..., help="Room ID or name"),
-    username: Optional[str] = typer.Option(None, "--username", "-u"),
-    password: Optional[str] = typer.Option(None, "--password", "-p"),
+    username: str | None = typer.Option(None, "--username", "-u"),
+    password: str | None = typer.Option(None, "--password", "-p"),
     format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
 ):
     """Show users in a room."""
@@ -670,8 +662,8 @@ def users(
 def send(
     room: str = typer.Argument(..., help="Room ID or name"),
     message: str = typer.Argument(..., help="Message to send"),
-    username: Optional[str] = typer.Option(None, "--username", "-u"),
-    password: Optional[str] = typer.Option(None, "--password", "-p"),
+    username: str | None = typer.Option(None, "--username", "-u"),
+    password: str | None = typer.Option(None, "--password", "-p"),
 ):
     """Send a message to a room."""
     asyncio.run(_execute_send_command(room, message, username, password))
@@ -681,8 +673,8 @@ def send(
 def threads(
     room: str = typer.Argument(..., help="Room ID or name"),
     limit: int = typer.Option(50, "--limit", "-l", help="Number of messages to check"),
-    username: Optional[str] = typer.Option(None, "--username", "-u"),
-    password: Optional[str] = typer.Option(None, "--password", "-p"),
+    username: str | None = typer.Option(None, "--username", "-u"),
+    password: str | None = typer.Option(None, "--password", "-p"),
     format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
 ):
     """List all threads in a room."""
@@ -772,8 +764,8 @@ def thread(
         ..., help="Thread ID (t1, t2, etc.) or full Matrix ID"
     ),
     limit: int = typer.Option(50, "--limit", "-l", help="Number of messages to fetch"),
-    username: Optional[str] = typer.Option(None, "--username", "-u"),
-    password: Optional[str] = typer.Option(None, "--password", "-p"),
+    username: str | None = typer.Option(None, "--username", "-u"),
+    password: str | None = typer.Option(None, "--password", "-p"),
     format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
 ):
     """Show all messages in a specific thread."""
@@ -880,8 +872,8 @@ def reply(
     room: str = typer.Argument(..., help="Room ID or name"),
     handle: str = typer.Argument(..., help="Message handle (m1, m2, etc.) to reply to"),
     message: str = typer.Argument(..., help="Reply message"),
-    username: Optional[str] = typer.Option(None, "--username", "-u"),
-    password: Optional[str] = typer.Option(None, "--password", "-p"),
+    username: str | None = typer.Option(None, "--username", "-u"),
+    password: str | None = typer.Option(None, "--password", "-p"),
 ):
     """Reply to a specific message using its handle."""
 
@@ -937,8 +929,8 @@ def thread_start(
         ..., help="Message handle (m1, m2, etc.) to start thread from"
     ),
     message: str = typer.Argument(..., help="First message in the thread"),
-    username: Optional[str] = typer.Option(None, "--username", "-u"),
-    password: Optional[str] = typer.Option(None, "--password", "-p"),
+    username: str | None = typer.Option(None, "--username", "-u"),
+    password: str | None = typer.Option(None, "--password", "-p"),
 ):
     """Start a new thread from a message using its handle."""
 
@@ -995,8 +987,8 @@ def thread_reply(
         ..., help="Thread ID (t1, t2, etc.) or full Matrix ID"
     ),
     message: str = typer.Argument(..., help="Reply message"),
-    username: Optional[str] = typer.Option(None, "--username", "-u"),
-    password: Optional[str] = typer.Option(None, "--password", "-p"),
+    username: str | None = typer.Option(None, "--username", "-u"),
+    password: str | None = typer.Option(None, "--password", "-p"),
 ):
     """Reply within an existing thread."""
 

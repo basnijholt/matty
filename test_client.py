@@ -3,8 +3,9 @@
 
 import asyncio
 import os
-from nio import AsyncClient, LoginResponse
+
 from dotenv import load_dotenv
+from nio import AsyncClient, LoginResponse
 from rich.console import Console
 
 console = Console()
