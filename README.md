@@ -3,7 +3,7 @@
 
   # Matty - Matrix CLI Client
 
-  A simple, functional Matrix chat client built with Python, Typer, and Rich. Perfect for AI-driven automation - every interaction is a single CLI command.
+  A simple, functional Matrix chat client built with Python, Typer, and Rich. Every interaction is a single CLI command for easy automation.
 </div>
 
 ## Features
