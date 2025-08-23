@@ -3,7 +3,7 @@
 
   # Matty - Matrix CLI Client
 
-  A simple, functional Matrix chat client built with Python, Typer, and Rich. Every interaction is a single CLI command for easy automation.
+  A simple, functional Matrix chat client built with Python, Typer, Pydantic, Nio, and Rich. Every interaction is a single CLI command for easy automation.
 </div>
 
 [![PyPI](https://img.shields.io/pypi/v/matty.svg)](https://pypi.python.org/pypi/matty)
