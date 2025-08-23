@@ -1,10 +1,12 @@
 # Matrix CLI Client
 
-A simple, functional Matrix chat client built with Python, Typer, and Rich.
+A simple, functional Matrix chat client built with Python, Typer, and Rich. Perfect for AI-driven automation - every interaction is a single CLI command.
 
 ## Features
 
 - Fast CLI commands for quick Matrix operations
+- Thread support - view and navigate threaded conversations
+- AI-friendly - every action is a single CLI command
 - Functional programming style (minimal classes, maximum functions)
 - Environment-based configuration
 - Multiple output formats (rich, simple, JSON)
@@ -48,6 +50,12 @@ uv run python matrix_cli.py users lobby
 
 # Get recent messages from a room
 uv run python matrix_cli.py messages lobby --limit 10
+
+# List threads in a room
+uv run python matrix_cli.py threads lobby
+
+# View messages in a specific thread
+uv run python matrix_cli.py thread lobby <thread_id>
 
 # Send a message to a room
 uv run python matrix_cli.py send lobby "Hello from CLI!"
