@@ -17,7 +17,7 @@
 
 ### 2. Testing
 - Run tests with `pytest` before claiming completion
-- Use `uv run python matrix_client.py` to test the client
+- Use `uv run python matty.py` to test the client
 - Use `uv run python test_client.py` for connection testing
 
 ### 3. Code Quality
@@ -39,20 +39,13 @@
 - Test credentials in `.env` file
 
 ### Available Test Accounts
-- mindroom_user (general user)
-- Various agent accounts (see matrix_state.yaml)
-
-### Available Rooms
-- lobby, business, home, news, finance, research, dev, etc.
+- See `.env` for usernames and passwords
 
 ## Running the Client
 
 ```bash
 # Text-based client
-uv run python matrix_client.py
-
-# TUI client (when ready)
-uv run python matrixtui.py
+uv run python matty.py
 
 # Test connection
 uv run python test_client.py
