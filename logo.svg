@@ -39,7 +39,7 @@
   </rect>
 
   <!-- Title text -->
-  <text x="100" y="180" font-family="monospace" font-size="14" fill="#00ff00" text-anchor="middle" opacity="0.9">
-    MATRIX TUI
+  <text x="100" y="180" font-family="monospace" font-size="18" fill="#00ff00" text-anchor="middle" opacity="0.9">
+    MATTY
   </text>
 </svg>
