@@ -314,9 +314,9 @@ async def _get_messages(
                 )
             # Handle reaction events
             elif isinstance(event, ReactionEvent):
-                # ReactionEvent has: relates_to (with event_id), key (emoji), sender
-                if event.relates_to and event.key:
-                    target_event_id = event.relates_to.event_id
+                # ReactionEvent has: reacts_to (event_id), key (emoji), sender
+                if event.reacts_to and event.key:
+                    target_event_id = event.reacts_to
                     emoji = event.key
                     sender = event.sender
 
