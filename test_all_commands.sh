@@ -105,6 +105,32 @@ test_echo "Thread reply (alias)" "matty tr $ROOM t6 'Thread reply with alias'"
 uv run matty tr "$ROOM" t6 "Thread reply with alias" 2>/dev/null || echo "Thread t6 may not exist"
 echo
 
+section_echo "Testing reactions and redaction"
+
+test_echo "Add reaction to message m1" "matty react $ROOM m1 '👍'"
+uv run matty react "$ROOM" m1 "👍"
+echo
+
+test_echo "Add reaction (alias)" "matty rx $ROOM m2 '🚀'"
+uv run matty rx "$ROOM" m2 "🚀"
+echo
+
+test_echo "Show reactions for message" "matty reactions $ROOM m1 --format simple"
+uv run matty reactions "$ROOM" m1 --format simple 2>/dev/null || echo "No reactions found"
+echo
+
+test_echo "Show reactions (alias)" "matty rxs $ROOM m2"
+uv run matty rxs "$ROOM" m2 2>/dev/null || echo "No reactions found"
+echo
+
+test_echo "Redact/delete message" "matty redact $ROOM m5 --reason 'Test deletion'"
+uv run matty redact "$ROOM" m5 --reason "Test deletion" 2>/dev/null || echo "Message m5 may not exist"
+echo
+
+test_echo "Delete message (alias)" "matty del $ROOM m6"
+uv run matty del "$ROOM" m6 2>/dev/null || echo "Message m6 may not exist"
+echo
+
 section_echo "Testing different output formats"
 
 test_echo "Rich format (default)" "matty rooms --format rich"
