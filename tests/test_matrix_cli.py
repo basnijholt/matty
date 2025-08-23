@@ -159,6 +159,12 @@ async def test_send_message_success():
 
     client = MagicMock(spec=AsyncClient)
     client.room_send = AsyncMock(return_value=None)
+    # Add rooms attribute for mention parsing
+    client.rooms = {
+        "!room:matrix.org": MagicMock(
+            users={"@user1:matrix.org": {}, "@user2:matrix.org": {}}
+        )
+    }
 
     result = await _send_message(client, "!room:matrix.org", "Test message")
     assert result is True
@@ -176,6 +182,12 @@ async def test_send_message_with_thread():
 
     client = MagicMock(spec=AsyncClient)
     client.room_send = AsyncMock(return_value=None)
+    # Add rooms attribute for mention parsing
+    client.rooms = {
+        "!room:matrix.org": MagicMock(
+            users={"@user1:matrix.org": {}, "@user2:matrix.org": {}}
+        )
+    }
 
     result = await _send_message(
         client, "!room:matrix.org", "Thread reply", thread_root_id="$thread123"

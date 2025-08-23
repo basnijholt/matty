@@ -338,6 +338,12 @@ class TestAsyncFunctions:
         client = MagicMock(spec=AsyncClient)
         response = RoomSendResponse("$new_event123", "!room:matrix.org")
         client.room_send = AsyncMock(return_value=response)
+        # Add rooms attribute for mention parsing
+        client.rooms = {
+            "!room:matrix.org": MagicMock(
+                users={"@user1:matrix.org": {}, "@user2:matrix.org": {}}
+            )
+        }
 
         result = await _send_message(
             client,
@@ -352,6 +358,35 @@ class TestAsyncFunctions:
         content = call_args[1]["content"]
         assert "m.relates_to" in content
         assert content["m.relates_to"]["m.in_reply_to"]["event_id"] == "$original123"
+
+    @pytest.mark.asyncio
+    async def test_send_message_with_mentions(self):
+        """Test sending a message with mentions."""
+        client = MagicMock(spec=AsyncClient)
+        response = RoomSendResponse("$new_event456", "!room:matrix.org")
+        client.room_send = AsyncMock(return_value=response)
+        # Add rooms attribute with users for mention parsing
+        room_mock = MagicMock()
+        room_mock.users = {"@alice:matrix.org": {}, "@bob:matrix.org": {}}
+        client.rooms = {"!room:matrix.org": room_mock}
+
+        result = await _send_message(
+            client,
+            "!room:matrix.org",
+            "@alice please check this",
+        )
+        assert result is True
+
+        # Check that formatted_body was added with mention
+        call_args = client.room_send.call_args
+        content = call_args[1]["content"]
+        assert content["body"] == "@alice please check this"
+        assert "formatted_body" in content
+        assert "@alice:matrix.org" in content["formatted_body"]
+        assert (
+            '<a href="https://matrix.to/#/@alice:matrix.org">'
+            in content["formatted_body"]
+        )
 
     @pytest.mark.asyncio
     async def test_send_message_error(self):
@@ -718,8 +753,8 @@ class TestErrorHandling:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_find_room_case_insensitive(self):
-        """Test case-insensitive room finding."""
+    async def test_find_room_exact_match(self):
+        """Test exact room name matching (case-insensitive)."""
         client = MagicMock(spec=AsyncClient)
 
         room = MagicMock(spec=MatrixRoom)
@@ -730,9 +765,13 @@ class TestErrorHandling:
 
         client.rooms = {"!room:matrix.org": room}
 
-        # Test case insensitive
+        # Test exact match (case insensitive)
         result = await _find_room(client, "test room")
         assert result == ("!room:matrix.org", "Test Room")
+
+        # Test partial match should NOT work
+        result = await _find_room(client, "test")
+        assert result is None
 
     @pytest.mark.asyncio
     async def test_get_messages_empty_room(self):
