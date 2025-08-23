@@ -52,6 +52,9 @@ class Message:
     timestamp: datetime
     room_id: str
     event_id: Optional[str] = None
+    thread_root_id: Optional[str] = None  # ID of the root message if this is in a thread
+    reply_to_id: Optional[str] = None  # ID of message this replies to
+    is_thread_root: bool = False  # True if this message started a thread
 
 
 class OutputFormat(str, Enum):
@@ -131,26 +134,77 @@ async def _find_room(client: AsyncClient, room_query: str) -> Optional[Tuple[str
 
 
 async def _get_messages(client: AsyncClient, room_id: str, limit: int = 20) -> List[Message]:
-    """Fetch messages from a room."""
+    """Fetch messages from a room, including thread information."""
     try:
         response = await client.room_messages(room_id, limit=limit)
         
         messages = []
+        thread_roots = set()  # Track which messages have threads
+        
         for event in response.chunk:
             if isinstance(event, RoomMessageText):
+                # Check if this message is part of a thread
+                thread_root_id = None
+                reply_to_id = None
+                
+                # Check for thread relation
+                if hasattr(event, 'source') and event.source.get('content', {}).get('m.relates_to'):
+                    relates_to = event.source['content']['m.relates_to']
+                    
+                    # Thread relation
+                    if relates_to.get('rel_type') == 'm.thread':
+                        thread_root_id = relates_to.get('event_id')
+                        thread_roots.add(thread_root_id)
+                    
+                    # Reply relation (in thread or main timeline)
+                    if 'm.in_reply_to' in relates_to:
+                        reply_to_id = relates_to['m.in_reply_to'].get('event_id')
+                
                 messages.append(Message(
                     sender=event.sender,
                     content=event.body,
                     timestamp=datetime.fromtimestamp(event.server_timestamp / 1000),
                     room_id=room_id,
-                    event_id=event.event_id
+                    event_id=event.event_id,
+                    thread_root_id=thread_root_id,
+                    reply_to_id=reply_to_id,
+                    is_thread_root=False  # Will update after
                 ))
+        
+        # Mark thread roots
+        for msg in messages:
+            if msg.event_id in thread_roots:
+                msg.is_thread_root = True
         
         return list(reversed(messages))
         
     except Exception as e:
         console.print(f"[red]Failed to get messages: {e}[/red]")
         return []
+
+
+async def _get_threads(client: AsyncClient, room_id: str, limit: int = 50) -> List[Message]:
+    """Get all thread root messages in a room."""
+    messages = await _get_messages(client, room_id, limit)
+    return [msg for msg in messages if msg.is_thread_root]
+
+
+async def _get_thread_messages(client: AsyncClient, room_id: str, thread_id: str, limit: int = 50) -> List[Message]:
+    """Get all messages in a specific thread."""
+    messages = await _get_messages(client, room_id, limit)
+    
+    # Find the thread root
+    thread_root = None
+    thread_messages = []
+    
+    for msg in messages:
+        if msg.event_id == thread_id:
+            thread_root = msg
+            thread_messages.append(msg)
+        elif msg.thread_root_id == thread_id:
+            thread_messages.append(msg)
+    
+    return sorted(thread_messages, key=lambda m: m.timestamp)
 
 
 async def _send_message(client: AsyncClient, room_id: str, message: str) -> bool:
@@ -205,12 +259,20 @@ def _display_rooms_json(rooms: List[Room]) -> None:
 
 
 def _display_messages_rich(messages: List[Message], room_name: str) -> None:
-    """Display messages in rich format."""
+    """Display messages in rich format with thread indicators."""
     console.print(Panel(f"[bold cyan]{room_name}[/bold cyan]", expand=False))
     
     for msg in messages:
         time_str = msg.timestamp.strftime("%H:%M")
-        console.print(f"[dim]{time_str}[/dim] [cyan]{msg.sender}[/cyan]: {msg.content}")
+        prefix = ""
+        
+        # Add thread indicators
+        if msg.is_thread_root:
+            prefix = "[bold yellow]🧵[/bold yellow] "
+        elif msg.thread_root_id:
+            prefix = "  ↳ "
+        
+        console.print(f"{prefix}[dim]{time_str}[/dim] [cyan]{msg.sender}[/cyan]: {msg.content}")
 
 
 def _display_messages_simple(messages: List[Message], room_name: str) -> None:
@@ -463,6 +525,147 @@ def send(
 ):
     """Send a message to a room."""
     asyncio.run(_execute_send_command(room, message, username, password))
+
+
+@app.command()
+def threads(
+    room: str = typer.Argument(..., help="Room ID or name"),
+    limit: int = typer.Option(50, "--limit", "-l", help="Number of messages to check"),
+    username: Optional[str] = typer.Option(None, "--username", "-u"),
+    password: Optional[str] = typer.Option(None, "--password", "-p"),
+    format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f")
+):
+    """List all threads in a room."""
+    
+    async def _threads():
+        config = _load_config()
+        if username:
+            config.username = username
+        if password:
+            config.password = password
+        
+        if not config.username or not config.password:
+            console.print("[red]Username and password required[/red]")
+            return
+        
+        client = await _create_client(config)
+        
+        try:
+            if await _login(client, config.username, config.password):
+                room_info = await _find_room(client, room)
+                
+                if not room_info:
+                    console.print(f"[red]Room '{room}' not found[/red]")
+                    return
+                
+                room_id, room_name = room_info
+                threads = await _get_threads(client, room_id, limit)
+                
+                if not threads:
+                    console.print(f"[yellow]No threads found in {room_name}[/yellow]")
+                    return
+                
+                if format == OutputFormat.rich:
+                    table = Table(title=f"Threads in {room_name}", show_lines=True)
+                    table.add_column("Time", style="dim", width=8)
+                    table.add_column("Author", style="cyan")
+                    table.add_column("Thread Start", style="green")
+                    table.add_column("Thread ID", style="dim")
+                    
+                    for thread in threads:
+                        time_str = thread.timestamp.strftime("%H:%M")
+                        # Truncate content for display
+                        content = thread.content[:50] + "..." if len(thread.content) > 50 else thread.content
+                        table.add_row(time_str, thread.sender, content, thread.event_id or "")
+                    
+                    console.print(table)
+                
+                elif format == OutputFormat.simple:
+                    print(f"=== Threads in {room_name} ===")
+                    for thread in threads:
+                        time_str = thread.timestamp.strftime("%H:%M")
+                        print(f"[{time_str}] {thread.sender}: {thread.content[:50]}... (ID: {thread.event_id})")
+                
+                elif format == OutputFormat.json:
+                    print(json.dumps({
+                        "room": room_name,
+                        "threads": [asdict(thread) for thread in threads]
+                    }, indent=2, default=str))
+        finally:
+            await client.close()
+    
+    asyncio.run(_threads())
+
+
+@app.command()
+def thread(
+    room: str = typer.Argument(..., help="Room ID or name"),
+    thread_id: str = typer.Argument(..., help="Thread ID to view"),
+    limit: int = typer.Option(50, "--limit", "-l", help="Number of messages to fetch"),
+    username: Optional[str] = typer.Option(None, "--username", "-u"),
+    password: Optional[str] = typer.Option(None, "--password", "-p"),
+    format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f")
+):
+    """Show all messages in a specific thread."""
+    
+    async def _thread():
+        config = _load_config()
+        if username:
+            config.username = username
+        if password:
+            config.password = password
+        
+        if not config.username or not config.password:
+            console.print("[red]Username and password required[/red]")
+            return
+        
+        client = await _create_client(config)
+        
+        try:
+            if await _login(client, config.username, config.password):
+                room_info = await _find_room(client, room)
+                
+                if not room_info:
+                    console.print(f"[red]Room '{room}' not found[/red]")
+                    return
+                
+                room_id, room_name = room_info
+                thread_messages = await _get_thread_messages(client, room_id, thread_id, limit)
+                
+                if not thread_messages:
+                    console.print(f"[yellow]No messages found in thread {thread_id}[/yellow]")
+                    return
+                
+                if format == OutputFormat.rich:
+                    console.print(Panel(f"[bold cyan]Thread in {room_name}[/bold cyan]", expand=False))
+                    
+                    for msg in thread_messages:
+                        time_str = msg.timestamp.strftime("%H:%M")
+                        if msg.event_id == thread_id:
+                            # Thread root
+                            console.print(f"[bold yellow]🧵 Thread Start[/bold yellow]")
+                            console.print(f"[dim]{time_str}[/dim] [cyan]{msg.sender}[/cyan]: {msg.content}")
+                        else:
+                            # Thread reply
+                            console.print(f"  ↳ [{dim}]{time_str}[/dim] [cyan]{msg.sender}[/cyan]: {msg.content}")
+                
+                elif format == OutputFormat.simple:
+                    print(f"=== Thread in {room_name} ===")
+                    for msg in thread_messages:
+                        time_str = msg.timestamp.strftime("%H:%M")
+                        prefix = "THREAD START: " if msg.event_id == thread_id else "  > "
+                        print(f"{prefix}[{time_str}] {msg.sender}: {msg.content}")
+                
+                elif format == OutputFormat.json:
+                    print(json.dumps({
+                        "room": room_name,
+                        "thread_id": thread_id,
+                        "messages": [asdict(msg) for msg in thread_messages]
+                    }, indent=2, default=str))
+        finally:
+            await client.close()
+    
+    asyncio.run(_thread())
 
 
 if __name__ == "__main__":
