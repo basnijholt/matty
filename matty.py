@@ -277,6 +277,120 @@ def _is_success_response(response: any) -> bool:
 
 
 # =============================================================================
+# Matrix Protocol Helpers
+# =============================================================================
+
+
+def _get_event_content(event) -> dict:
+    """Extract content from a Matrix event safely."""
+    return event.source.get("content", {})
+
+
+def _get_relation(content: dict) -> dict | None:
+    """Extract m.relates_to from content if it exists."""
+    return content.get("m.relates_to") if "m.relates_to" in content else None
+
+
+def _is_relation_type(content: dict, rel_type: str) -> bool:
+    """Check if content has a specific relation type."""
+    if relation := _get_relation(content):
+        return relation.get("rel_type") == rel_type
+    return False
+
+
+def _extract_thread_and_reply(content: dict) -> tuple[str | None, str | None]:
+    """Extract thread root ID and reply-to ID from message content.
+
+    Returns:
+        tuple: (thread_root_id, reply_to_id)
+    """
+    thread_root_id = None
+    reply_to_id = None
+
+    if relation := _get_relation(content):
+        # Thread relation
+        if relation.get("rel_type") == "m.thread":
+            thread_root_id = relation.get("event_id")
+
+        # Reply relation (in thread or main timeline)
+        if "m.in_reply_to" in relation:
+            reply_to_id = relation["m.in_reply_to"].get("event_id")
+
+    return thread_root_id, reply_to_id
+
+
+def _build_message_content(
+    body: str,
+    formatted_body: str | None = None,
+    mentioned_user_ids: list[str] | None = None,
+    thread_root_id: str | None = None,
+    reply_to_id: str | None = None,
+) -> dict:
+    """Build a message content dictionary with all necessary fields."""
+    content = {"msgtype": "m.text", "body": body}
+
+    # Add formatted body if we have mentions
+    if formatted_body:
+        content["format"] = "org.matrix.custom.html"
+        content["formatted_body"] = formatted_body
+
+    # Add m.mentions field if we have any mentions
+    if mentioned_user_ids:
+        content["m.mentions"] = {"user_ids": mentioned_user_ids}
+
+    # Add thread or reply relations
+    if thread_root_id or reply_to_id:
+        content["m.relates_to"] = {}
+
+        if thread_root_id:
+            # Thread reply
+            content["m.relates_to"]["rel_type"] = "m.thread"
+            content["m.relates_to"]["event_id"] = thread_root_id
+
+        if reply_to_id:
+            # Reply to specific message
+            content["m.relates_to"]["m.in_reply_to"] = {"event_id": reply_to_id}
+
+    return content
+
+
+def _build_edit_content(
+    original_event_id: str,
+    body: str,
+    formatted_body: str | None = None,
+    mentioned_user_ids: list[str] | None = None,
+) -> dict:
+    """Build an edit message content dictionary."""
+    # Create edit content with m.replace relation
+    edit_content = {
+        "msgtype": "m.text",
+        "body": f"* {body}",  # Convention: prefix with * for edits
+        "m.new_content": {
+            "msgtype": "m.text",
+            "body": body,
+        },
+        "m.relates_to": {
+            "rel_type": "m.replace",
+            "event_id": original_event_id,
+        },
+    }
+
+    # Add formatted body if we have mentions
+    if formatted_body:
+        edit_content["format"] = "org.matrix.custom.html"
+        edit_content["formatted_body"] = f"* {formatted_body}"
+        edit_content["m.new_content"]["format"] = "org.matrix.custom.html"
+        edit_content["m.new_content"]["formatted_body"] = formatted_body
+
+    # Add mentions field if there are any
+    if mentioned_user_ids:
+        edit_content["m.mentions"] = {"user_ids": mentioned_user_ids}
+        edit_content["m.new_content"]["m.mentions"] = {"user_ids": mentioned_user_ids}
+
+    return edit_content
+
+
+# =============================================================================
 # CLI Helper Functions
 # =============================================================================
 
@@ -461,13 +575,12 @@ async def _get_messages(client: AsyncClient, room_id: str, limit: int = 20) -> l
         # First pass: collect edits
         for event in response.chunk:
             if isinstance(event, RoomMessageText):
-                content = event.source.get("content", {})
+                content = _get_event_content(event)
                 # Check if this is an edit (m.replace relation)
                 if (
-                    "m.relates_to" in content
-                    and (relates_to := content["m.relates_to"])
-                    and relates_to.get("rel_type") == "m.replace"
-                    and (original_id := relates_to.get("event_id"))
+                    _is_relation_type(content, "m.replace")
+                    and (relation := _get_relation(content))
+                    and (original_id := relation.get("event_id"))
                     and (
                         original_id not in edits_map
                         or event.server_timestamp > edits_map[original_id].server_timestamp
@@ -479,16 +592,14 @@ async def _get_messages(client: AsyncClient, room_id: str, limit: int = 20) -> l
         for event in response.chunk:
             if isinstance(event, RoomMessageText):
                 # Skip if this is an edit event (already processed)
-                content = event.source.get("content", {})
-                if "m.relates_to" in content:
-                    relates_to = content["m.relates_to"]
-                    if relates_to.get("rel_type") == "m.replace":
-                        continue  # Skip edit events themselves
+                content = _get_event_content(event)
+                if _is_relation_type(content, "m.replace"):
+                    continue  # Skip edit events themselves
 
                 # Check if this message has been edited
                 if event.event_id in edits_map:
                     edit_event = edits_map[event.event_id]
-                    edit_content = edit_event.source.get("content", {})
+                    edit_content = _get_event_content(edit_event)
                     # Get the new content from m.new_content field
                     if "m.new_content" in edit_content:
                         message_content = edit_content["m.new_content"].get("body", event.body)
@@ -501,22 +612,10 @@ async def _get_messages(client: AsyncClient, room_id: str, limit: int = 20) -> l
                 else:
                     message_content = event.body
 
-                # Check if this message is part of a thread
-                thread_root_id = None
-                reply_to_id = None
-
-                # Check for thread relation
-                if "m.relates_to" in content:
-                    relates_to = content["m.relates_to"]
-
-                    # Thread relation
-                    if relates_to.get("rel_type") == "m.thread":
-                        thread_root_id = relates_to.get("event_id")
-                        thread_roots.add(thread_root_id)
-
-                    # Reply relation (in thread or main timeline)
-                    if "m.in_reply_to" in relates_to:
-                        reply_to_id = relates_to["m.in_reply_to"].get("event_id")
+                # Extract thread and reply relations
+                thread_root_id, reply_to_id = _extract_thread_and_reply(content)
+                if thread_root_id:
+                    thread_roots.add(thread_root_id)
 
                 messages.append(
                     Message(
@@ -598,6 +697,12 @@ async def _get_thread_messages(
     return sorted(thread_messages, key=lambda m: m.timestamp)
 
 
+def _get_room_users(client: AsyncClient, room_id: str) -> list[str]:
+    """Get list of user IDs in a room."""
+    room = client.rooms.get(room_id)
+    return list(room.users.keys()) if room else []
+
+
 def _parse_mentions(message: str, room_users: list[str]) -> tuple[str, str | None, list[str]]:
     """Parse @mentions in message and return (body, formatted_body, mentioned_user_ids).
 
@@ -655,35 +760,19 @@ async def _send_message(
     """Send a message to a room, optionally as a thread reply or regular reply."""
     try:
         # Get room users for mention parsing
-        room = client.rooms.get(room_id)
-        room_users = list(room.users.keys()) if room else []
+        room_users = _get_room_users(client, room_id)
 
         # Parse mentions
         body, formatted_body, mentioned_user_ids = _parse_mentions(message, room_users)
 
-        content = {"msgtype": "m.text", "body": body}
-
-        # Add formatted body if we have mentions
-        if formatted_body:
-            content["format"] = "org.matrix.custom.html"
-            content["formatted_body"] = formatted_body
-
-        # Add m.mentions field if we have any mentions
-        if mentioned_user_ids:
-            content["m.mentions"] = {"user_ids": mentioned_user_ids}
-
-        # Add thread or reply relations
-        if thread_root_id or reply_to_id:
-            content["m.relates_to"] = {}
-
-            if thread_root_id:
-                # Thread reply
-                content["m.relates_to"]["rel_type"] = "m.thread"
-                content["m.relates_to"]["event_id"] = thread_root_id
-
-            if reply_to_id:
-                # Reply to specific message
-                content["m.relates_to"]["m.in_reply_to"] = {"event_id": reply_to_id}
+        # Build message content using helper
+        content = _build_message_content(
+            body=body,
+            formatted_body=formatted_body,
+            mentioned_user_ids=mentioned_user_ids,
+            thread_root_id=thread_root_id,
+            reply_to_id=reply_to_id,
+        )
 
         response = await client.room_send(room_id, message_type="m.room.message", content=content)
         if _is_success_response(response):
@@ -1535,37 +1624,18 @@ def edit(
                 return
 
             # Get room users for mention parsing
-            room_obj = client.rooms.get(room_id)
-            room_users = list(room_obj.users.keys()) if room_obj else []
+            room_users = _get_room_users(client, room_id)
 
             # Parse mentions
             body, formatted_body, mentioned_user_ids = _parse_mentions(new_content, room_users)
 
-            # Create edit content with m.replace relation
-            edit_content = {
-                "msgtype": "m.text",
-                "body": f"* {body}",  # Convention: prefix with * for edits
-                "m.new_content": {
-                    "msgtype": "m.text",
-                    "body": body,
-                },
-                "m.relates_to": {
-                    "rel_type": "m.replace",
-                    "event_id": target_msg.event_id,
-                },
-            }
-
-            # Add formatted body if we have mentions
-            if formatted_body:
-                edit_content["format"] = "org.matrix.custom.html"
-                edit_content["formatted_body"] = f"* {formatted_body}"
-                edit_content["m.new_content"]["format"] = "org.matrix.custom.html"
-                edit_content["m.new_content"]["formatted_body"] = formatted_body
-
-            # Add mentions field if there are any
-            if mentioned_user_ids:
-                edit_content["m.mentions"] = {"user_ids": mentioned_user_ids}
-                edit_content["m.new_content"]["m.mentions"] = {"user_ids": mentioned_user_ids}
+            # Build edit content using helper
+            edit_content = _build_edit_content(
+                original_event_id=target_msg.event_id,
+                body=body,
+                formatted_body=formatted_body,
+                mentioned_user_ids=mentioned_user_ids,
+            )
 
             try:
                 response = await client.room_send(
