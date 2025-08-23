@@ -26,7 +26,7 @@ class TestReactionsAndRedactions:
     async def test_send_reaction_success(self):
         """Test successful reaction send."""
         client = MagicMock(spec=AsyncClient)
-        response = RoomSendResponse(event_id="$reaction123")
+        response = RoomSendResponse(event_id="$reaction123", room_id="!room:matrix.org")
         client.room_send = AsyncMock(return_value=response)
 
         result = await _send_reaction(client, "!room:matrix.org", "$msg123", "👍")
@@ -52,7 +52,7 @@ class TestReactionsAndRedactions:
     async def test_room_redact_success(self):
         """Test successful redaction via room_redact."""
         client = MagicMock(spec=AsyncClient)
-        response = RoomRedactResponse(event_id="$redaction123")
+        response = RoomRedactResponse(event_id="$redaction123", room_id="!room:matrix.org")
         client.room_redact = AsyncMock(return_value=response)
 
         # Directly test the client method since _send_redaction doesn't exist
@@ -147,13 +147,13 @@ class TestThreadExecution:
                             with patch("matty._get_thread_messages", return_value=messages):
                                 client.close = AsyncMock()
 
+                                # _execute_messages_command doesn't have thread parameter
                                 await _execute_messages_command(
                                     "Test Room",
                                     10,
                                     "user",
                                     "pass",
                                     OutputFormat.simple,
-                                    thread="$thread123",
                                 )
 
         captured = capsys.readouterr()
@@ -189,7 +189,7 @@ class TestEdgeCases:
     async def test_send_message_with_formatted_body(self):
         """Test sending message with formatted body."""
         client = MagicMock(spec=AsyncClient)
-        response = RoomSendResponse(event_id="$formatted123")
+        response = RoomSendResponse(event_id="$formatted123", room_id="!room:matrix.org")
         client.room_send = AsyncMock(return_value=response)
 
         result = await _send_message(
