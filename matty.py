@@ -140,45 +140,10 @@ def _save_state(server: str | None = None) -> None:
         json.dump(state.model_dump(), f, indent=2)
 
 
-def _migrate_old_files() -> None:
-    """Migrate old storage files to new structure."""
-    # Migrate thread IDs
-    old_id_file = Path.home() / ".matrix_cli_ids.json"
-    if old_id_file.exists():
-        with old_id_file.open() as f:
-            old_data = json.load(f)
-
-        state = _load_state("default")
-        state.thread_ids.counter = old_data.get("counter", 0)
-        state.thread_ids.id_to_matrix = {
-            int(k): v for k, v in old_data.get("id_to_matrix", {}).items()
-        }
-        state.thread_ids.matrix_to_id = old_data.get("matrix_to_id", {})
-        _save_state("default")
-        old_id_file.rename(old_id_file.with_suffix(".json.bak"))
-
-    # Migrate handle mappings
-    old_handle_file = Path.home() / ".matrix_cli_handles.json"
-    if old_handle_file.exists():
-        with old_handle_file.open() as f:
-            old_data = json.load(f)
-
-        state = _load_state("default")
-        state.message_handles.handle_counter = old_data.get("handle_counter", {})
-        state.message_handles.room_handles = old_data.get("room_handles", {})
-        state.message_handles.room_handle_to_event = old_data.get(
-            "room_handle_to_event", {}
-        )
-        _save_state("default")
-        old_handle_file.rename(old_handle_file.with_suffix(".json.bak"))
-
-
 def _set_current_server(server: str) -> None:
     """Set the current server for state management."""
     global _current_server  # noqa: PLW0603
     _current_server = server
-    # Migrate old files on first use
-    _migrate_old_files()
 
 
 def _get_or_create_mapping(
