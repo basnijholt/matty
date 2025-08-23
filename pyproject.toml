@@ -1,8 +1,8 @@
 [project]
 name = "matty"
-version = "0.1.0"
 description = "A Terminal UI for Matrix chat - simple and AI-friendly"
 readme = "README.md"
+dynamic = ["version"]
 requires-python = ">=3.12"
 license = {text = "MIT"}
 authors = [
@@ -47,11 +47,15 @@ dev = [
     "mypy>=1.13.0",
     "types-aiofiles>=24.1.0",
     "markdown-code-runner>=2.3.0",
+    "versioningit>=3.3.0",
 ]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "versioningit"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "versioningit"
 
 [tool.hatch.build.targets.wheel]
 packages = ["."]
@@ -207,3 +211,11 @@ max-args = 8
 max-branches = 15
 max-returns = 10
 max-statements = 50
+
+[tool.versioningit]
+default-version = "0.0.0"
+
+[tool.versioningit.vcs]
+method = "git"
+match = ["v*"]
+default-tag = "0.0.0"
