@@ -144,7 +144,7 @@ async def test_login_failure():
     client = MagicMock(spec=AsyncClient)
     client.login = MagicMock(side_effect=LoginError("Invalid password"))
 
-    result = await _login(client, "user", "wrong_password")
+    result = await _login(client, "wrong_password")
     assert result is False
 
 
@@ -153,12 +153,13 @@ async def test_send_message_success():
     """Test successful message sending."""
     from unittest.mock import AsyncMock
 
-    from nio import AsyncClient
+    from nio import AsyncClient, RoomSendResponse
 
     from matty import _send_message
 
     client = MagicMock(spec=AsyncClient)
-    client.room_send = AsyncMock(return_value=None)
+    response = RoomSendResponse("$event123", "!room:matrix.org")
+    client.room_send = AsyncMock(return_value=response)
     # Add rooms attribute for mention parsing
     client.rooms = {
         "!room:matrix.org": MagicMock(
@@ -176,12 +177,13 @@ async def test_send_message_with_thread():
     """Test sending message in thread."""
     from unittest.mock import AsyncMock
 
-    from nio import AsyncClient
+    from nio import AsyncClient, RoomSendResponse
 
     from matty import _send_message
 
     client = MagicMock(spec=AsyncClient)
-    client.room_send = AsyncMock(return_value=None)
+    response = RoomSendResponse("$event456", "!room:matrix.org")
+    client.room_send = AsyncMock(return_value=response)
     # Add rooms attribute for mention parsing
     client.rooms = {
         "!room:matrix.org": MagicMock(

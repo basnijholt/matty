@@ -25,6 +25,8 @@
 - Use type hints for all functions
 - Avoid bare try-except blocks unless necessary
 - Keep imports at the top of files
+- Use `isinstance()` for type checking, not `hasattr()` or duck typing
+- Import and use proper types from libraries (e.g., `from nio import ReactionEvent`)
 
 ### 4. Git Workflow
 - Make atomic commits (each commit should work)

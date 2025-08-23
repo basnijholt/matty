@@ -27,26 +27,26 @@ section_echo() {
 section_echo "Testing all matty commands"
 
 # Set room name for testing
-ROOM="News"
+ROOM="Dev"
 
 test_echo "Show help" "matty --help"
-uv run matty --help | head -5
+uv run matty --help
 echo
 
 test_echo "List all rooms" "matty rooms --format simple"
-uv run matty rooms --format simple | head -5
+uv run matty rooms --format simple
 echo
 
 test_echo "List rooms (alias)" "matty r --format simple"
-uv run matty r --format simple | head -3
+uv run matty r --format simple
 echo
 
-test_echo "Show messages in $ROOM" "matty messages $ROOM --limit 3"
-uv run matty messages "$ROOM" --limit 3
+test_echo "Show messages in $ROOM" "matty messages $ROOM --limit 5"
+uv run matty messages "$ROOM" --limit 5
 echo
 
-test_echo "Show messages (alias)" "matty m $ROOM --limit 2"
-uv run matty m "$ROOM" --limit 2
+test_echo "Show messages (alias)" "matty m $ROOM --limit 5"
+uv run matty m "$ROOM" --limit 5
 echo
 
 test_echo "Show users in $ROOM" "matty users $ROOM --format simple"
@@ -54,7 +54,7 @@ uv run matty users "$ROOM" --format simple
 echo
 
 test_echo "Show users (alias)" "matty u $ROOM --format simple"
-uv run matty u "$ROOM" --format simple | head -3
+uv run matty u "$ROOM" --format simple
 echo
 
 test_echo "Send message to $ROOM" "matty send $ROOM 'Test message from script'"
@@ -69,16 +69,16 @@ test_echo "List threads in $ROOM" "matty threads $ROOM --limit 5"
 uv run matty threads "$ROOM" --limit 5
 echo
 
-test_echo "List threads (alias)" "matty t $ROOM --limit 3 --format simple"
-uv run matty t "$ROOM" --limit 3 --format simple
+test_echo "List threads (alias)" "matty t $ROOM --limit 5 --format simple"
+uv run matty t "$ROOM" --limit 5 --format simple
 echo
 
 test_echo "Show thread messages" "matty thread $ROOM t1 --limit 5"
 uv run matty thread "$ROOM" t1 --limit 5 2>/dev/null || echo "No thread t1 found (expected)"
 echo
 
-test_echo "Show thread (alias)" "matty th $ROOM t6 --limit 3"
-uv run matty th "$ROOM" t6 --limit 3 2>/dev/null || echo "Thread t6 may not exist"
+test_echo "Show thread (alias)" "matty th $ROOM t6 --limit 5"
+uv run matty th "$ROOM" t6 --limit 5 2>/dev/null || echo "Thread t6 may not exist"
 echo
 
 test_echo "Reply to message m1" "matty reply $ROOM m1 'Test reply from script'"
@@ -105,18 +105,44 @@ test_echo "Thread reply (alias)" "matty tr $ROOM t6 'Thread reply with alias'"
 uv run matty tr "$ROOM" t6 "Thread reply with alias" 2>/dev/null || echo "Thread t6 may not exist"
 echo
 
+section_echo "Testing reactions and redaction"
+
+test_echo "Add reaction to message m1" "matty react $ROOM m1 '👍'"
+uv run matty react "$ROOM" m1 "👍"
+echo
+
+test_echo "Add reaction (alias)" "matty rx $ROOM m2 '🚀'"
+uv run matty rx "$ROOM" m2 "🚀"
+echo
+
+test_echo "Show reactions for message" "matty reactions $ROOM m1 --format simple"
+uv run matty reactions "$ROOM" m1 --format simple 2>/dev/null || echo "No reactions found"
+echo
+
+test_echo "Show reactions (alias)" "matty rxs $ROOM m2"
+uv run matty rxs "$ROOM" m2 2>/dev/null || echo "No reactions found"
+echo
+
+test_echo "Redact/delete message" "matty redact $ROOM m5 --reason 'Test deletion'"
+uv run matty redact "$ROOM" m5 --reason "Test deletion" 2>/dev/null || echo "Message m5 may not exist"
+echo
+
+test_echo "Delete message (alias)" "matty del $ROOM m6"
+uv run matty del "$ROOM" m6 2>/dev/null || echo "Message m6 may not exist"
+echo
+
 section_echo "Testing different output formats"
 
 test_echo "Rich format (default)" "matty rooms --format rich"
-uv run matty rooms --format rich | head -8
+uv run matty rooms --format rich
 echo
 
 test_echo "Simple format" "matty rooms --format simple"
-uv run matty rooms --format simple | head -3
+uv run matty rooms --format simple
 echo
 
-test_echo "JSON format" "matty messages $ROOM --limit 2 --format json"
-uv run matty messages "$ROOM" --limit 2 --format json | head -15
+test_echo "JSON format" "matty messages $ROOM --limit 5 --format json"
+uv run matty messages "$ROOM" --limit 5 --format json
 echo
 
 section_echo "Testing with mentions"
