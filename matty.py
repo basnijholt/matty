@@ -211,6 +211,8 @@ class Message:
     reactions: dict[str, list[str]] = field(
         default_factory=dict
     )  # emoji -> list of users who reacted
+    handle: str | None = None  # Display handle (m1, m2, etc.)
+    thread_handle: str | None = None  # Thread handle (t1, t2, etc.)
 
 
 class OutputFormat(str, Enum):
@@ -290,6 +292,19 @@ async def _find_room(client: AsyncClient, room_query: str) -> tuple[str, str] | 
             return room.room_id, room.name
 
     return None
+
+
+def _assign_message_handles(messages: list[Message]) -> list[Message]:
+    """Assign display handles to messages based on their position."""
+    for idx, msg in enumerate(messages, 1):
+        msg.handle = f"m{idx}"
+        if msg.is_thread_root and msg.event_id:
+            thread_simple_id = _get_or_create_id(msg.event_id)
+            msg.thread_handle = f"t{thread_simple_id}"
+        elif msg.thread_root_id:
+            thread_simple_id = _get_or_create_id(msg.thread_root_id)
+            msg.thread_handle = f"t{thread_simple_id}"
+    return messages
 
 
 async def _get_messages(
@@ -378,7 +393,11 @@ async def _get_messages(
             if msg.event_id in reactions_map:
                 msg.reactions = reactions_map[msg.event_id]
 
-        return list(reversed(messages))
+        # Reverse messages to show newest last
+        messages = list(reversed(messages))
+
+        # Assign handles to messages
+        return _assign_message_handles(messages)
 
     except Exception as e:
         console.print(f"[red]Failed to get messages: {e}[/red]")
@@ -573,15 +592,21 @@ async def _get_message_by_handle(
     client: AsyncClient, room_id: str, handle: str, limit: int = 20
 ) -> Message | None:
     """Get a message by its handle (m1, m2, etc.) from recent messages."""
-    # Extract number from handle (m1 -> 1)
+    messages = await _get_messages(client, room_id, limit)
+
+    # Find message with matching handle
+    for msg in messages:
+        if msg.handle == handle:
+            return msg
+
+    # Fallback to index-based lookup for backward compatibility
     try:
         idx = int(handle[1:]) - 1 if handle.startswith("m") else int(handle) - 1
-    except ValueError:
-        return None
+        if 0 <= idx < len(messages):
+            return messages[idx]
+    except (ValueError, IndexError):
+        pass
 
-    messages = await _get_messages(client, room_id, limit)
-    if 0 <= idx < len(messages):
-        return messages[idx]
     return None
 
 
@@ -619,25 +644,18 @@ def _display_messages_rich(messages: list[Message], room_name: str) -> None:
     """Display messages in rich format with thread indicators, message handles, and reactions."""
     console.print(Panel(f"[bold cyan]{room_name}[/bold cyan]", expand=False))
 
-    for idx, msg in enumerate(messages, 1):
+    for msg in messages:
         time_str = msg.timestamp.strftime("%H:%M")
         prefix = ""
 
         # Add thread indicators
-        if msg.is_thread_root:
-            # Get simple ID for thread
-            if msg.event_id:
-                thread_simple_id = _get_or_create_id(msg.event_id)
-                prefix = f"[bold yellow]🧵 t{thread_simple_id}[/bold yellow] "
-            else:
-                prefix = "[bold yellow]🧵[/bold yellow] "
-        elif msg.thread_root_id:
-            # Show which thread this message belongs to
-            thread_simple_id = _get_or_create_id(msg.thread_root_id)
-            prefix = f"  ↳ [dim yellow]t{thread_simple_id}[/dim yellow] "
+        if msg.is_thread_root and msg.thread_handle:
+            prefix = f"[bold yellow]🧵 {msg.thread_handle}[/bold yellow] "
+        elif msg.thread_handle:
+            prefix = f"  ↳ [dim yellow]{msg.thread_handle}[/dim yellow] "
 
-        # Create a short handle for the message (m1, m2, etc.)
-        handle = f"[bold magenta]m{idx}[/bold magenta]"
+        # Use the handle from the message
+        handle = f"[bold magenta]{msg.handle}[/bold magenta]"
 
         # Show the message with handle
         console.print(
@@ -661,17 +679,14 @@ def _display_messages_rich(messages: list[Message], room_name: str) -> None:
 def _display_messages_simple(messages: list[Message], room_name: str) -> None:
     """Display messages in simple format with handles and reactions."""
     print(f"=== {room_name} ===")
-    for idx, msg in enumerate(messages, 1):
+    for msg in messages:
         time_str = msg.timestamp.strftime("%H:%M")
-        handle = f"m{idx}"
         thread_mark = ""
-        if msg.is_thread_root and msg.event_id:
-            thread_simple_id = _get_or_create_id(msg.event_id)
-            thread_mark = f" [THREAD t{thread_simple_id}]"
-        elif msg.thread_root_id:
-            thread_simple_id = _get_or_create_id(msg.thread_root_id)
-            thread_mark = f" [IN-THREAD t{thread_simple_id}]"
-        print(f"{handle} [{time_str}] {msg.sender}: {msg.content}{thread_mark}")
+        if msg.is_thread_root and msg.thread_handle:
+            thread_mark = f" [THREAD {msg.thread_handle}]"
+        elif msg.thread_handle:
+            thread_mark = f" [IN-THREAD {msg.thread_handle}]"
+        print(f"{msg.handle} [{time_str}] {msg.sender}: {msg.content}{thread_mark}")
 
         # Show reactions if any
         if msg.reactions:
