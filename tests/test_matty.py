@@ -840,6 +840,181 @@ class TestCLICommands:
                     assert result.exit_code == 0
 
 
+class TestMatrixProtocolHelpers:
+    """Test the new Matrix protocol helper functions."""
+
+    def test_get_event_content(self):
+        """Test _get_event_content helper."""
+        from unittest.mock import MagicMock
+
+        from nio import RoomMessageText
+
+        from matty import _get_event_content
+
+        # Mock event with content
+        event = MagicMock(spec=RoomMessageText)
+        event.source = {"content": {"body": "test", "msgtype": "m.text"}}
+
+        content = _get_event_content(event)
+        assert content == {"body": "test", "msgtype": "m.text"}
+
+        # Mock event without content
+        event2 = MagicMock(spec=RoomMessageText)
+        event2.source = {}
+
+        content2 = _get_event_content(event2)
+        assert content2 == {}
+
+    def test_get_relation(self):
+        """Test _get_relation helper."""
+        from matty import _get_relation
+
+        # Content with relation
+        content = {"m.relates_to": {"rel_type": "m.thread", "event_id": "$123"}}
+        relation = _get_relation(content)
+        assert relation == {"rel_type": "m.thread", "event_id": "$123"}
+
+        # Content without relation
+        content2 = {"body": "test"}
+        relation2 = _get_relation(content2)
+        assert relation2 is None
+
+    def test_is_relation_type(self):
+        """Test _is_relation_type helper."""
+        from matty import _is_relation_type
+
+        # Content with matching relation type
+        content = {"m.relates_to": {"rel_type": "m.thread", "event_id": "$123"}}
+        assert _is_relation_type(content, "m.thread") is True
+        assert _is_relation_type(content, "m.replace") is False
+
+        # Content without relation
+        content2 = {"body": "test"}
+        assert _is_relation_type(content2, "m.thread") is False
+
+    def test_extract_thread_and_reply(self):
+        """Test _extract_thread_and_reply helper."""
+        from matty import _extract_thread_and_reply
+
+        # Thread relation
+        content = {"m.relates_to": {"rel_type": "m.thread", "event_id": "$thread123"}}
+        thread_id, reply_id = _extract_thread_and_reply(content)
+        assert thread_id == "$thread123"
+        assert reply_id is None
+
+        # Reply relation
+        content2 = {"m.relates_to": {"m.in_reply_to": {"event_id": "$reply123"}}}
+        thread_id2, reply_id2 = _extract_thread_and_reply(content2)
+        assert thread_id2 is None
+        assert reply_id2 == "$reply123"
+
+        # Both thread and reply
+        content3 = {
+            "m.relates_to": {
+                "rel_type": "m.thread",
+                "event_id": "$thread456",
+                "m.in_reply_to": {"event_id": "$reply456"},
+            }
+        }
+        thread_id3, reply_id3 = _extract_thread_and_reply(content3)
+        assert thread_id3 == "$thread456"
+        assert reply_id3 == "$reply456"
+
+        # No relation
+        content4 = {"body": "test"}
+        thread_id4, reply_id4 = _extract_thread_and_reply(content4)
+        assert thread_id4 is None
+        assert reply_id4 is None
+
+    def test_build_message_content(self):
+        """Test _build_message_content helper."""
+        from matty import _build_message_content
+
+        # Simple message
+        content = _build_message_content("Hello world")
+        assert content == {"msgtype": "m.text", "body": "Hello world"}
+
+        # Message with formatted body
+        content2 = _build_message_content("Hello", formatted_body="<b>Hello</b>")
+        assert content2["body"] == "Hello"
+        assert content2["formatted_body"] == "<b>Hello</b>"
+        assert content2["format"] == "org.matrix.custom.html"
+
+        # Message with mentions
+        content3 = _build_message_content("Hello @user", mentioned_user_ids=["@user:matrix.org"])
+        assert content3["m.mentions"] == {"user_ids": ["@user:matrix.org"]}
+
+        # Thread message
+        content4 = _build_message_content("Thread reply", thread_root_id="$thread789")
+        assert content4["m.relates_to"]["rel_type"] == "m.thread"
+        assert content4["m.relates_to"]["event_id"] == "$thread789"
+
+        # Reply message
+        content5 = _build_message_content("Reply", reply_to_id="$msg789")
+        assert content5["m.relates_to"]["m.in_reply_to"]["event_id"] == "$msg789"
+
+        # Thread reply with reply-to
+        content6 = _build_message_content(
+            "Thread reply", thread_root_id="$thread999", reply_to_id="$msg999"
+        )
+        assert content6["m.relates_to"]["rel_type"] == "m.thread"
+        assert content6["m.relates_to"]["event_id"] == "$thread999"
+        assert content6["m.relates_to"]["m.in_reply_to"]["event_id"] == "$msg999"
+
+    def test_build_edit_content(self):
+        """Test _build_edit_content helper."""
+        from matty import _build_edit_content
+
+        # Simple edit
+        content = _build_edit_content("$original123", "Edited text")
+        assert content["body"] == "* Edited text"
+        assert content["m.new_content"]["body"] == "Edited text"
+        assert content["m.relates_to"]["rel_type"] == "m.replace"
+        assert content["m.relates_to"]["event_id"] == "$original123"
+
+        # Edit with formatted body
+        content2 = _build_edit_content("$original456", "Edited", formatted_body="<b>Edited</b>")
+        assert content2["formatted_body"] == "* <b>Edited</b>"
+        assert content2["m.new_content"]["formatted_body"] == "<b>Edited</b>"
+        assert "format" in content2
+        assert "format" in content2["m.new_content"]
+
+        # Edit with mentions
+        content3 = _build_edit_content(
+            "$original789", "Edited @user", mentioned_user_ids=["@user:matrix.org"]
+        )
+        assert content3["m.mentions"] == {"user_ids": ["@user:matrix.org"]}
+        assert content3["m.new_content"]["m.mentions"] == {"user_ids": ["@user:matrix.org"]}
+
+    def test_get_room_users(self):
+        """Test _get_room_users helper."""
+        from unittest.mock import MagicMock
+
+        from nio import AsyncClient, MatrixRoom
+
+        from matty import _get_room_users
+
+        # Mock client with room
+        client = MagicMock(spec=AsyncClient)
+        room = MagicMock(spec=MatrixRoom)
+        room.users = {
+            "@user1:matrix.org": None,
+            "@user2:matrix.org": None,
+            "@user3:matrix.org": None,
+        }
+        client.rooms = {"!room:matrix.org": room}
+
+        users = _get_room_users(client, "!room:matrix.org")
+        assert len(users) == 3
+        assert "@user1:matrix.org" in users
+        assert "@user2:matrix.org" in users
+        assert "@user3:matrix.org" in users
+
+        # Room not found
+        users2 = _get_room_users(client, "!nonexistent:matrix.org")
+        assert users2 == []
+
+
 class TestErrorHandling:
     """Test error handling scenarios."""
 
