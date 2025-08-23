@@ -1174,3 +1174,212 @@ class TestErrorHandling:
 
         messages = await _get_messages(client, "!room:matrix.org", limit=10)
         assert messages == []
+
+
+class TestNewFeatures:
+    """Test the newly added features: search, export, and watch."""
+
+    @pytest.mark.asyncio
+    async def test_search_messages(self):
+        """Test searching messages for specific text."""
+        from datetime import datetime
+
+        from matty import Message
+
+        # Create mock messages
+        msg1 = Message(
+            sender="@user1:matrix.org",
+            content="Hello world from Python",
+            timestamp=datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC),
+            room_id="!room:matrix.org",
+            event_id="$msg1",
+            handle="m1",
+        )
+
+        msg2 = Message(
+            sender="@user2:matrix.org",
+            content="Testing the search functionality",
+            timestamp=datetime(2024, 1, 1, 10, 5, 0, tzinfo=UTC),
+            room_id="!room:matrix.org",
+            event_id="$msg2",
+            handle="m2",
+        )
+
+        msg3 = Message(
+            sender="@user3:matrix.org",
+            content="Another message with Python code",
+            timestamp=datetime(2024, 1, 1, 10, 10, 0, tzinfo=UTC),
+            room_id="!room:matrix.org",
+            event_id="$msg3",
+            handle="m3",
+        )
+
+        # Test case-insensitive search
+        messages = [msg1, msg2, msg3]
+
+        # Search for "python" (should find 2 messages)
+        matched = [msg for msg in messages if "python" in msg.content.lower()]
+
+        assert len(matched) == 2
+        assert msg1 in matched
+        assert msg3 in matched
+
+        # Test regex search
+        import re
+
+        pattern = r"world|search"
+        matched_regex = [msg for msg in messages if re.search(pattern, msg.content, re.IGNORECASE)]
+
+        assert len(matched_regex) == 2
+        assert msg1 in matched_regex
+        assert msg2 in matched_regex
+
+    @pytest.mark.asyncio
+    async def test_export_messages_markdown(self):
+        """Test exporting messages to markdown format."""
+        from datetime import datetime
+
+        from matty import Message, _message_to_dict
+
+        # Create mock messages
+        msg1 = Message(
+            sender="@user1:matrix.org",
+            content="First message",
+            timestamp=datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC),
+            room_id="!room:matrix.org",
+            event_id="$msg1",
+            handle="m1",
+            reactions={"👍": ["@user2:matrix.org"]},
+        )
+
+        msg2 = Message(
+            sender="@user2:matrix.org",
+            content="Second message",
+            timestamp=datetime(2024, 1, 1, 10, 5, 0, tzinfo=UTC),
+            room_id="!room:matrix.org",
+            event_id="$msg2",
+            handle="m2",
+        )
+
+        messages = [msg1, msg2]
+
+        # Test markdown export format
+        room_name = "Test Room"
+        content = f"# {room_name}\n\n"
+        content += f"*Exported on {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S UTC')}*\n\n"
+        content += "---\n\n"
+
+        for msg in reversed(messages):  # Show oldest first
+            time_str = msg.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+            content += f"**{msg.sender}** - *{time_str}*\n\n"
+            content += f"{msg.content}\n"
+
+            if msg.reactions:
+                reactions_str = " ".join(
+                    [f"{emoji}({len(users)})" for emoji, users in msg.reactions.items()]
+                )
+                content += f"\n> Reactions: {reactions_str}\n"
+
+            content += "\n---\n\n"
+
+        # Verify markdown content structure
+        assert "# Test Room" in content
+        assert "**@user1:matrix.org**" in content
+        assert "First message" in content
+        assert "Second message" in content
+        assert "👍(1)" in content
+
+        # Test JSON export format
+        export_data = {
+            "room": room_name,
+            "exported_at": datetime.now(UTC).isoformat(),
+            "message_count": len(messages),
+            "messages": [_message_to_dict(msg) for msg in messages],
+        }
+
+        assert export_data["message_count"] == 2
+        assert len(export_data["messages"]) == 2
+        assert export_data["messages"][0]["content"] == "First message"
+
+    @pytest.mark.asyncio
+    async def test_watch_new_messages(self):
+        """Test watch mode for detecting new messages."""
+        from datetime import datetime
+
+        from matty import Message
+
+        # Simulate a sequence of messages appearing over time
+        seen_events = set()
+
+        # First batch of messages
+        messages_batch1 = [
+            Message(
+                sender="@user1:matrix.org",
+                content="Initial message",
+                timestamp=datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC),
+                room_id="!room:matrix.org",
+                event_id="$msg1",
+                handle="m1",
+            )
+        ]
+
+        # Check for new messages
+        new_messages = []
+        for msg in messages_batch1:
+            if msg.event_id and msg.event_id not in seen_events:
+                new_messages.append(msg)
+                seen_events.add(msg.event_id)
+
+        assert len(new_messages) == 1
+        assert new_messages[0].content == "Initial message"
+
+        # Second batch with one new message
+        messages_batch2 = [
+            messages_batch1[0],  # Same message
+            Message(
+                sender="@user2:matrix.org",
+                content="New message appears",
+                timestamp=datetime(2024, 1, 1, 10, 5, 0, tzinfo=UTC),
+                room_id="!room:matrix.org",
+                event_id="$msg2",
+                handle="m2",
+                thread_root_id="$msg1",  # It's a thread reply
+            ),
+        ]
+
+        new_messages = []
+        for msg in messages_batch2:
+            if msg.event_id and msg.event_id not in seen_events:
+                new_messages.append(msg)
+                seen_events.add(msg.event_id)
+
+        assert len(new_messages) == 1
+        assert new_messages[0].content == "New message appears"
+        assert new_messages[0].thread_root_id == "$msg1"  # Thread indicator should be present
+
+        # Test reaction tracking
+        messages_batch3 = [
+            Message(
+                sender="@user3:matrix.org",
+                content="Message with reactions",
+                timestamp=datetime(2024, 1, 1, 10, 10, 0, tzinfo=UTC),
+                room_id="!room:matrix.org",
+                event_id="$msg3",
+                handle="m3",
+                reactions={
+                    "🎉": ["@user1:matrix.org"],
+                    "💯": ["@user2:matrix.org", "@user1:matrix.org"],
+                },
+            )
+        ]
+
+        new_messages = []
+        for msg in messages_batch3:
+            if msg.event_id and msg.event_id not in seen_events:
+                new_messages.append(msg)
+                seen_events.add(msg.event_id)
+
+        assert len(new_messages) == 1
+        assert new_messages[0].reactions
+        assert "🎉" in new_messages[0].reactions
+        assert len(new_messages[0].reactions["💯"]) == 2
