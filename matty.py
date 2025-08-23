@@ -15,7 +15,11 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-app = typer.Typer(help="Functional Matrix CLI client")
+app = typer.Typer(
+    help="Functional Matrix CLI client",
+    no_args_is_help=True,  # Show help when no command is provided
+    context_settings={"help_option_names": ["-h", "--help"]},  # Add -h short option
+)
 console = Console()
 
 # Global ID mapping storage
