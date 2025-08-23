@@ -183,6 +183,9 @@ class Message:
     thread_root_id: str | None = None  # ID of the root message if this is in a thread
     reply_to_id: str | None = None  # ID of message this replies to
     is_thread_root: bool = False  # True if this message started a thread
+    reactions: dict[str, list[str]] = field(
+        default_factory=dict
+    )  # emoji -> list of users who reacted
 
 
 class OutputFormat(str, Enum):
@@ -265,12 +268,13 @@ async def _find_room(client: AsyncClient, room_query: str) -> tuple[str, str] | 
 async def _get_messages(
     client: AsyncClient, room_id: str, limit: int = 20
 ) -> list[Message]:
-    """Fetch messages from a room, including thread information."""
+    """Fetch messages from a room, including thread information and reactions."""
     try:
         response = await client.room_messages(room_id, limit=limit)
 
         messages = []
         thread_roots = set()  # Track which messages have threads
+        reactions_map = {}  # event_id -> {emoji: [users]}
 
         for event in response.chunk:
             if isinstance(event, RoomMessageText):
@@ -305,13 +309,33 @@ async def _get_messages(
                         thread_root_id=thread_root_id,
                         reply_to_id=reply_to_id,
                         is_thread_root=False,  # Will update after
+                        reactions={},  # Will populate below
                     )
                 )
+            # Handle reaction events (using hasattr since nio doesn't have a ReactionEvent class)
+            elif hasattr(event, "source") and event.source.get("type") == "m.reaction":
+                content = event.source.get("content", {})
+                relates_to = content.get("m.relates_to", {})
 
-        # Mark thread roots
+                if relates_to.get("rel_type") == "m.annotation":
+                    target_event_id = relates_to.get("event_id")
+                    emoji = relates_to.get("key")
+                    sender = event.source.get("sender")
+
+                    if target_event_id and emoji and sender:
+                        if target_event_id not in reactions_map:
+                            reactions_map[target_event_id] = {}
+                        if emoji not in reactions_map[target_event_id]:
+                            reactions_map[target_event_id][emoji] = []
+                        if sender not in reactions_map[target_event_id][emoji]:
+                            reactions_map[target_event_id][emoji].append(sender)
+
+        # Mark thread roots and add reactions
         for msg in messages:
             if msg.event_id in thread_roots:
                 msg.is_thread_root = True
+            if msg.event_id in reactions_map:
+                msg.reactions = reactions_map[msg.event_id]
 
         return list(reversed(messages))
 
@@ -441,6 +465,58 @@ async def _send_message(
         return False
 
 
+async def _send_reaction(
+    client: AsyncClient,
+    room_id: str,
+    event_id: str,
+    emoji: str,
+) -> bool:
+    """Send a reaction to a message."""
+    try:
+        content = {
+            "m.relates_to": {
+                "rel_type": "m.annotation",
+                "event_id": event_id,
+                "key": emoji,
+            }
+        }
+
+        await client.room_send(room_id, message_type="m.reaction", content=content)
+        return True  # noqa: TRY300
+    except Exception as e:
+        console.print(f"[red]Failed to send reaction: {e}[/red]")
+        return False
+
+
+async def _remove_reaction(
+    client: AsyncClient,
+    room_id: str,
+    event_id: str,  # noqa: ARG001
+    emoji: str,  # noqa: ARG001
+    reaction_event_id: str | None = None,
+) -> bool:
+    """Remove a reaction from a message.
+
+    Note: In Matrix, you remove a reaction by redacting the reaction event.
+    This requires finding the reaction event ID first.
+    """
+    try:
+        # If we don't have the reaction event ID, we need to find it
+        # This is a limitation - we'd need to track reaction event IDs
+        # For now, we'll just inform that removal needs the reaction event ID
+        if not reaction_event_id:
+            console.print(
+                "[yellow]Note: Removing reactions requires tracking reaction event IDs.[/yellow]"
+            )
+            return False
+
+        await client.room_redact(room_id, reaction_event_id)
+        return True  # noqa: TRY300
+    except Exception as e:
+        console.print(f"[red]Failed to remove reaction: {e}[/red]")
+        return False
+
+
 async def _get_message_by_handle(
     client: AsyncClient, room_id: str, handle: str, limit: int = 20
 ) -> Message | None:
@@ -488,7 +564,7 @@ def _display_rooms_json(rooms: list[Room]) -> None:
 
 
 def _display_messages_rich(messages: list[Message], room_name: str) -> None:
-    """Display messages in rich format with thread indicators and message handles."""
+    """Display messages in rich format with thread indicators, message handles, and reactions."""
     console.print(Panel(f"[bold cyan]{room_name}[/bold cyan]", expand=False))
 
     for idx, msg in enumerate(messages, 1):
@@ -516,6 +592,13 @@ def _display_messages_rich(messages: list[Message], room_name: str) -> None:
             f"{handle} {prefix}[dim]{time_str}[/dim] [cyan]{msg.sender}[/cyan]: {msg.content}"
         )
 
+        # Show reactions if any
+        if msg.reactions:
+            reaction_str = " ".join(
+                f"{emoji} {len(users)}" for emoji, users in msg.reactions.items()
+            )
+            console.print(f"    [dim]Reactions: {reaction_str}[/dim]")
+
     # Show available actions
     if messages:
         console.print(
@@ -524,7 +607,7 @@ def _display_messages_rich(messages: list[Message], room_name: str) -> None:
 
 
 def _display_messages_simple(messages: list[Message], room_name: str) -> None:
-    """Display messages in simple format with handles."""
+    """Display messages in simple format with handles and reactions."""
     print(f"=== {room_name} ===")
     for idx, msg in enumerate(messages, 1):
         time_str = msg.timestamp.strftime("%H:%M")
@@ -537,6 +620,13 @@ def _display_messages_simple(messages: list[Message], room_name: str) -> None:
             thread_simple_id = _get_or_create_id(msg.thread_root_id)
             thread_mark = f" [IN-THREAD t{thread_simple_id}]"
         print(f"{handle} [{time_str}] {msg.sender}: {msg.content}{thread_mark}")
+
+        # Show reactions if any
+        if msg.reactions:
+            reaction_str = " ".join(
+                f"{emoji}:{len(users)}" for emoji, users in msg.reactions.items()
+            )
+            print(f"    Reactions: {reaction_str}")
 
 
 def _display_messages_json(messages: list[Message], room_name: str) -> None:
@@ -1193,6 +1283,123 @@ def thread_reply(
                 console.print("[red]✗ Failed to send thread reply[/red]")
 
     asyncio.run(_thread_reply())
+
+
+@app.command("react")
+@app.command("rx", hidden=True)
+def react(
+    ctx: typer.Context,
+    room: str = typer.Argument(None, help="Room ID or name"),
+    handle: str = typer.Argument(
+        None, help="Message handle (m1, m2, etc.) to react to"
+    ),
+    emoji: str = typer.Argument(None, help="Emoji reaction (e.g., 👍, ❤️, 😄)"),
+    username: str | None = typer.Option(None, "--username", "-u"),
+    password: str | None = typer.Option(None, "--password", "-p"),
+):
+    """Add a reaction to a message using its handle. (alias: rx)"""
+    _validate_required_args(ctx, room=room, handle=handle, emoji=emoji)
+
+    async def _react():
+        async with _with_client_in_room(room, username, password) as (
+            client,
+            room_id,
+            room_name,
+        ):
+            if client is None:
+                return
+
+            # Get the message to react to
+            target_msg = await _get_message_by_handle(client, room_id, handle)
+
+            if not target_msg:
+                console.print(f"[red]Message {handle} not found[/red]")
+                return
+
+            if not target_msg.event_id:
+                console.print(f"[red]Message {handle} has no event ID[/red]")
+                return
+
+            # Send reaction
+            if await _send_reaction(client, room_id, target_msg.event_id, emoji):
+                console.print(
+                    f"[green]✓ Reacted with {emoji} to {handle} in {room_name}[/green]"
+                )
+            else:
+                console.print("[red]✗ Failed to send reaction[/red]")
+
+    asyncio.run(_react())
+
+
+@app.command("reactions")
+@app.command("rxs", hidden=True)
+def reactions(
+    ctx: typer.Context,
+    room: str = typer.Argument(None, help="Room ID or name"),
+    handle: str = typer.Argument(
+        None, help="Message handle (m1, m2, etc.) to show reactions for"
+    ),
+    username: str | None = typer.Option(None, "--username", "-u"),
+    password: str | None = typer.Option(None, "--password", "-p"),
+    format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
+):
+    """Show detailed reactions for a specific message. (alias: rxs)"""
+    _validate_required_args(ctx, room=room, handle=handle)
+
+    async def _reactions():
+        async with _with_client_in_room(room, username, password) as (
+            client,
+            room_id,
+            room_name,
+        ):
+            if client is None:
+                return
+
+            # Get the message
+            target_msg = await _get_message_by_handle(client, room_id, handle)
+
+            if not target_msg:
+                console.print(f"[red]Message {handle} not found[/red]")
+                return
+
+            if not target_msg.reactions:
+                console.print(f"[yellow]No reactions on message {handle}[/yellow]")
+                return
+
+            if format == OutputFormat.rich:
+                table = Table(
+                    title=f"Reactions for {handle} in {room_name}", show_lines=True
+                )
+                table.add_column("Emoji", style="yellow")
+                table.add_column("Count", style="cyan")
+                table.add_column("Users", style="green")
+
+                for emoji, users in target_msg.reactions.items():
+                    user_list = ", ".join(users[:3])
+                    if len(users) > 3:
+                        user_list += f" ... and {len(users) - 3} more"
+                    table.add_row(emoji, str(len(users)), user_list)
+
+                console.print(table)
+
+            elif format == OutputFormat.simple:
+                print(f"=== Reactions for {handle} in {room_name} ===")
+                for emoji, users in target_msg.reactions.items():
+                    print(f"{emoji}: {len(users)} - {', '.join(users)}")
+
+            elif format == OutputFormat.json:
+                print(
+                    json.dumps(
+                        {
+                            "room": room_name,
+                            "message_handle": handle,
+                            "reactions": target_msg.reactions,
+                        },
+                        indent=2,
+                    )
+                )
+
+    asyncio.run(_reactions())
 
 
 if __name__ == "__main__":
