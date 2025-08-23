@@ -13,7 +13,7 @@ from enum import Enum
 from pathlib import Path
 
 import typer
-from nio import AsyncClient, LoginResponse, RoomMessageText
+from nio import AsyncClient, LoginResponse, ReactionEvent, RoomMessageText
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -283,19 +283,19 @@ async def _get_messages(
                 reply_to_id = None
 
                 # Check for thread relation
-                if hasattr(event, "source") and event.source.get("content", {}).get(
-                    "m.relates_to"
-                ):
-                    relates_to = event.source["content"]["m.relates_to"]
+                if isinstance(event, RoomMessageText) and hasattr(event, "source"):
+                    content = event.source.get("content", {})
+                    if "m.relates_to" in content:
+                        relates_to = content["m.relates_to"]
 
-                    # Thread relation
-                    if relates_to.get("rel_type") == "m.thread":
-                        thread_root_id = relates_to.get("event_id")
-                        thread_roots.add(thread_root_id)
+                        # Thread relation
+                        if relates_to.get("rel_type") == "m.thread":
+                            thread_root_id = relates_to.get("event_id")
+                            thread_roots.add(thread_root_id)
 
-                    # Reply relation (in thread or main timeline)
-                    if "m.in_reply_to" in relates_to:
-                        reply_to_id = relates_to["m.in_reply_to"].get("event_id")
+                        # Reply relation (in thread or main timeline)
+                        if "m.in_reply_to" in relates_to:
+                            reply_to_id = relates_to["m.in_reply_to"].get("event_id")
 
                 messages.append(
                     Message(
@@ -312,15 +312,13 @@ async def _get_messages(
                         reactions={},  # Will populate below
                     )
                 )
-            # Handle reaction events (using hasattr since nio doesn't have a ReactionEvent class)
-            elif hasattr(event, "source") and event.source.get("type") == "m.reaction":
-                content = event.source.get("content", {})
-                relates_to = content.get("m.relates_to", {})
-
-                if relates_to.get("rel_type") == "m.annotation":
-                    target_event_id = relates_to.get("event_id")
-                    emoji = relates_to.get("key")
-                    sender = event.source.get("sender")
+            # Handle reaction events
+            elif isinstance(event, ReactionEvent):
+                # ReactionEvent has: relates_to (with event_id), key (emoji), sender
+                if event.relates_to and event.key:
+                    target_event_id = event.relates_to.event_id
+                    emoji = event.key
+                    sender = event.sender
 
                     if target_event_id and emoji and sender:
                         if target_event_id not in reactions_map:
