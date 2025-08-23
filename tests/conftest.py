@@ -33,10 +33,7 @@ def env_setup(monkeypatch, tmp_path):
         if server is None:
             server = "https://test.matrix.org"
 
-        if server.startswith(("http://", "https://")):
-            domain = urlparse(server).netloc
-        else:
-            domain = server
+        domain = urlparse(server).netloc if server.startswith(("http://", "https://")) else server
 
         return test_state_dir / f"{domain}.json"
 

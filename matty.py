@@ -721,36 +721,6 @@ async def _send_reaction(
         return False
 
 
-async def _remove_reaction(
-    client: AsyncClient,
-    room_id: str,
-    reaction_event_id: str | None = None,
-) -> bool:
-    """Remove a reaction from a message.
-
-    Note: In Matrix, you remove a reaction by redacting the reaction event.
-    This requires finding the reaction event ID first.
-    """
-    try:
-        # If we don't have the reaction event ID, we need to find it
-        # This is a limitation - we'd need to track reaction event IDs
-        # For now, we'll just inform that removal needs the reaction event ID
-        if not reaction_event_id:
-            console.print(
-                "[yellow]Note: Removing reactions requires tracking reaction event IDs.[/yellow]"
-            )
-            return False
-
-        response = await client.room_redact(room_id, reaction_event_id)
-        if _is_success_response(response):
-            return True
-        console.print(f"[red]Failed to remove reaction: {response}[/red]")
-        return False  # noqa: TRY300
-    except Exception as e:
-        console.print(f"[red]Failed to remove reaction: {e}[/red]")
-        return False
-
-
 async def _get_message_by_handle(
     client: AsyncClient, room_id: str, handle: str, limit: int = 20
 ) -> Message | None:
