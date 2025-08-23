@@ -27,7 +27,7 @@ section_echo() {
 section_echo "Testing all matty commands"
 
 # Set room name for testing
-ROOM="News"
+ROOM="Dev"
 
 test_echo "Show help" "matty --help"
 uv run matty --help | head -5
@@ -41,12 +41,12 @@ test_echo "List rooms (alias)" "matty r --format simple"
 uv run matty r --format simple | head -3
 echo
 
-test_echo "Show messages in $ROOM" "matty messages $ROOM --limit 3"
-uv run matty messages "$ROOM" --limit 3
+test_echo "Show messages in $ROOM" "matty messages $ROOM --limit 5"
+uv run matty messages "$ROOM" --limit 5
 echo
 
-test_echo "Show messages (alias)" "matty m $ROOM --limit 2"
-uv run matty m "$ROOM" --limit 2
+test_echo "Show messages (alias)" "matty m $ROOM --limit 5"
+uv run matty m "$ROOM" --limit 5
 echo
 
 test_echo "Show users in $ROOM" "matty users $ROOM --format simple"
@@ -69,16 +69,16 @@ test_echo "List threads in $ROOM" "matty threads $ROOM --limit 5"
 uv run matty threads "$ROOM" --limit 5
 echo
 
-test_echo "List threads (alias)" "matty t $ROOM --limit 3 --format simple"
-uv run matty t "$ROOM" --limit 3 --format simple
+test_echo "List threads (alias)" "matty t $ROOM --limit 5 --format simple"
+uv run matty t "$ROOM" --limit 5 --format simple
 echo
 
 test_echo "Show thread messages" "matty thread $ROOM t1 --limit 5"
 uv run matty thread "$ROOM" t1 --limit 5 2>/dev/null || echo "No thread t1 found (expected)"
 echo
 
-test_echo "Show thread (alias)" "matty th $ROOM t6 --limit 3"
-uv run matty th "$ROOM" t6 --limit 3 2>/dev/null || echo "Thread t6 may not exist"
+test_echo "Show thread (alias)" "matty th $ROOM t6 --limit 5"
+uv run matty th "$ROOM" t6 --limit 5 2>/dev/null || echo "Thread t6 may not exist"
 echo
 
 test_echo "Reply to message m1" "matty reply $ROOM m1 'Test reply from script'"
@@ -141,8 +141,8 @@ test_echo "Simple format" "matty rooms --format simple"
 uv run matty rooms --format simple | head -3
 echo
 
-test_echo "JSON format" "matty messages $ROOM --limit 2 --format json"
-uv run matty messages "$ROOM" --limit 2 --format json | head -15
+test_echo "JSON format" "matty messages $ROOM --limit 5 --format json"
+uv run matty messages "$ROOM" --limit 5 --format json | head -15
 echo
 
 section_echo "Testing with mentions"
