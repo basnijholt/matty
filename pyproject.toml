@@ -130,14 +130,6 @@ ignore = [
     "PLR0912", # too many branches
     "PLR0915", # too many statements
     "PLR2004", # magic value comparison
-    "PLC0208", # iteration over set literal
-    "SIM117",  # multiple-with-statements
-    "TRY003",  # long exception messages
-    "EM101",   # raw string in exception
-    "EM102",   # f-string in exception
-    "UP007",   # use X | Y for union types (keep Optional for now)
-    "RET504",  # unnecessary assign before return
-    "RET505",  # unnecessary else after return
     "TID252",  # relative imports
     "T201",    # print allowed in CLI
 ]

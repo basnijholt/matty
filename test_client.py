@@ -47,10 +47,10 @@ async def test_connection():
 
             await client.close()
             return True
-        else:
-            console.print(f"[red]✗ Login failed: {response}[/red]")
-            await client.close()
-            return False
+
+        console.print(f"[red]✗ Login failed: {response}[/red]")
+        await client.close()
+        return False  # noqa: TRY300
 
     except Exception as e:
         console.print(f"[red]✗ Error: {e}[/red]")
