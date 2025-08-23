@@ -598,13 +598,15 @@ class TestAsyncFunctions:
         msg = await _get_message_by_handle(client, "!room:matrix.org", "m2")
         assert msg is not None
         assert msg.content == "Message 2"
+        assert msg.handle == "m2"
 
-        # Test with plain number
-        msg = await _get_message_by_handle(client, "!room:matrix.org", "1")
+        # Test with m1 format
+        msg = await _get_message_by_handle(client, "!room:matrix.org", "m1")
         assert msg is not None
         assert msg.content == "Message 1"
+        assert msg.handle == "m1"
 
-        # Test not found (index out of range)
+        # Test not found (non-existent handle)
         msg = await _get_message_by_handle(client, "!room:matrix.org", "m999")
         assert msg is None
 

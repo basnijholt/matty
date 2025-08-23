@@ -599,14 +599,6 @@ async def _get_message_by_handle(
         if msg.handle == handle:
             return msg
 
-    # Fallback to index-based lookup for backward compatibility
-    try:
-        idx = int(handle[1:]) - 1 if handle.startswith("m") else int(handle) - 1
-        if 0 <= idx < len(messages):
-            return messages[idx]
-    except (ValueError, IndexError):
-        pass
-
     return None
 
 
