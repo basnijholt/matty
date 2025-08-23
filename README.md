@@ -1,6 +1,10 @@
-# Matrix CLI Client
+<div align="center">
+  <img src="logo.svg" alt="Matrix TUI Logo" width="200" height="200">
 
-A simple, functional Matrix chat client built with Python, Typer, and Rich. Perfect for AI-driven automation - every interaction is a single CLI command.
+  # Matrix CLI Client
+
+  A simple, functional Matrix chat client built with Python, Typer, and Rich. Perfect for AI-driven automation - every interaction is a single CLI command.
+</div>
 
 ## Features
 
