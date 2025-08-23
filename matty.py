@@ -129,6 +129,23 @@ def _resolve_thread_id(thread_id: str) -> tuple[str | None, str | None]:
 
 
 # =============================================================================
+# CLI Helper Functions
+# =============================================================================
+
+
+def _validate_required_args(ctx: typer.Context, **kwargs) -> None:
+    """Validate that required arguments are not None. Show help and exit if any are missing.
+
+    Args:
+        ctx: Typer context for showing help
+        **kwargs: Named arguments to check (name=value pairs)
+    """
+    if any(v is None for v in kwargs.values()):
+        console.print(ctx.get_help())
+        raise typer.Exit(1)
+
+
+# =============================================================================
 # Data Models (using dataclasses instead of Pydantic for simplicity)
 # =============================================================================
 
@@ -854,9 +871,7 @@ def messages(
     format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
 ):
     """Show recent messages from a room. (alias: m)"""
-    if room is None:
-        console.print(ctx.get_help())
-        raise typer.Exit(1)
+    _validate_required_args(ctx, room=room)
     asyncio.run(_execute_messages_command(room, limit, username, password, format))
 
 
@@ -870,9 +885,7 @@ def users(
     format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
 ):
     """Show users in a room. (alias: u)"""
-    if room is None:
-        console.print(ctx.get_help())
-        raise typer.Exit(1)
+    _validate_required_args(ctx, room=room)
     asyncio.run(_execute_users_command(room, username, password, format))
 
 
@@ -888,9 +901,7 @@ def send(
     password: str | None = typer.Option(None, "--password", "-p"),
 ):
     """Send a message to a room. Supports @mentions. (alias: s)"""
-    if room is None or message is None:
-        console.print(ctx.get_help())
-        raise typer.Exit(1)
+    _validate_required_args(ctx, room=room, message=message)
     asyncio.run(_execute_send_command(room, message, username, password))
 
 
@@ -905,9 +916,7 @@ def threads(
     format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
 ):
     """List all threads in a room. (alias: t)"""
-    if room is None:
-        console.print(ctx.get_help())
-        raise typer.Exit(1)
+    _validate_required_args(ctx, room=room)
 
     async def _threads():
         async with _with_client_in_room(room, username, password) as (
@@ -984,9 +993,7 @@ def thread(
     format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
 ):
     """Show all messages in a specific thread. (alias: th)"""
-    if room is None or thread_id is None:
-        console.print(ctx.get_help())
-        raise typer.Exit(1)
+    _validate_required_args(ctx, room=room, thread_id=thread_id)
 
     async def _thread():
         # Resolve thread ID if it's a simple ID (t1, t2, etc.)
@@ -1073,9 +1080,7 @@ def reply(
     password: str | None = typer.Option(None, "--password", "-p"),
 ):
     """Reply to a specific message using its handle. (alias: re)"""
-    if room is None or handle is None or message is None:
-        console.print(ctx.get_help())
-        raise typer.Exit(1)
+    _validate_required_args(ctx, room=room, handle=handle, message=message)
 
     async def _reply():
         async with _with_client_in_room(room, username, password) as (
@@ -1117,9 +1122,7 @@ def thread_start(
     password: str | None = typer.Option(None, "--password", "-p"),
 ):
     """Start a new thread from a message using its handle. (alias: ts)"""
-    if room is None or handle is None or message is None:
-        console.print(ctx.get_help())
-        raise typer.Exit(1)
+    _validate_required_args(ctx, room=room, handle=handle, message=message)
 
     async def _thread_start():
         async with _with_client_in_room(room, username, password) as (
@@ -1164,9 +1167,7 @@ def thread_reply(
     password: str | None = typer.Option(None, "--password", "-p"),
 ):
     """Reply within an existing thread. (alias: tr)"""
-    if room is None or thread_id is None or message is None:
-        console.print(ctx.get_help())
-        raise typer.Exit(1)
+    _validate_required_args(ctx, room=room, thread_id=thread_id, message=message)
 
     async def _thread_reply():
         # Resolve thread ID if it's a simple ID (t1, t2, etc.)
