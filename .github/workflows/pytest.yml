@@ -31,7 +31,7 @@ jobs:
 
       - name: Run tests with pytest
         run: |
-          uv run pytest tests/ -v --cov=matrix_cli --cov-report=term-missing --cov-report=xml
+          uv run pytest tests/ -v --cov=matty --cov-report=term-missing --cov-report=xml
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v4

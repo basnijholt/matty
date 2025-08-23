@@ -24,7 +24,7 @@ def env_setup(monkeypatch, tmp_path):
 
     # Use temporary directory for ID mappings
     test_id_file = tmp_path / "test_matrix_ids.json"
-    monkeypatch.setattr("matrix_cli.ID_MAP_FILE", test_id_file)
+    monkeypatch.setattr("matty.ID_MAP_FILE", test_id_file)
 
     yield
 

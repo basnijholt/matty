@@ -44,7 +44,7 @@ MATRIX_SSL_VERIFY=true  # Set to false for test servers
 
 <!-- markdown-code-runner -->
 ```bash
-python matrix_cli.py --help
+python matty.py --help
 ```
 <!-- markdown-code-runner -->
 
@@ -54,7 +54,7 @@ List all joined Matrix rooms:
 
 <!-- markdown-code-runner -->
 ```bash
-python matrix_cli.py rooms --help
+python matty.py rooms --help
 ```
 <!-- markdown-code-runner -->
 
@@ -64,7 +64,7 @@ Get recent messages from a room:
 
 <!-- markdown-code-runner -->
 ```bash
-python matrix_cli.py messages --help
+python matty.py messages --help
 ```
 <!-- markdown-code-runner -->
 
@@ -74,7 +74,7 @@ List users in a room:
 
 <!-- markdown-code-runner -->
 ```bash
-python matrix_cli.py users --help
+python matty.py users --help
 ```
 <!-- markdown-code-runner -->
 
@@ -84,13 +84,13 @@ View and interact with threads:
 
 <!-- markdown-code-runner -->
 ```bash
-python matrix_cli.py threads --help
+python matty.py threads --help
 ```
 <!-- markdown-code-runner -->
 
 <!-- markdown-code-runner -->
 ```bash
-python matrix_cli.py thread --help
+python matty.py thread --help
 ```
 <!-- markdown-code-runner -->
 
@@ -100,7 +100,7 @@ Send messages to rooms:
 
 <!-- markdown-code-runner -->
 ```bash
-python matrix_cli.py send --help
+python matty.py send --help
 ```
 <!-- markdown-code-runner -->
 
@@ -110,7 +110,7 @@ Reply to messages:
 
 <!-- markdown-code-runner -->
 ```bash
-python matrix_cli.py reply --help
+python matty.py reply --help
 ```
 <!-- markdown-code-runner -->
 
@@ -120,7 +120,7 @@ Start a thread from a message:
 
 <!-- markdown-code-runner -->
 ```bash
-python matrix_cli.py thread-start --help
+python matty.py thread-start --help
 ```
 <!-- markdown-code-runner -->
 
@@ -130,7 +130,7 @@ Reply in a thread:
 
 <!-- markdown-code-runner -->
 ```bash
-python matrix_cli.py thread-reply --help
+python matty.py thread-reply --help
 ```
 <!-- markdown-code-runner -->
 
@@ -140,47 +140,47 @@ python matrix_cli.py thread-reply --help
 
 ```bash
 # List all rooms
-uv run python matrix_cli.py rooms
+uv run python matty.py rooms
 
 # Show users in a room
-uv run python matrix_cli.py users lobby
+uv run python matty.py users lobby
 
 # Get recent messages from a room
-uv run python matrix_cli.py messages lobby --limit 10
+uv run python matty.py messages lobby --limit 10
 
 # Send a message to a room
-uv run python matrix_cli.py send lobby "Hello from CLI!"
+uv run python matty.py send lobby "Hello from CLI!"
 
 # Use different output formats
-uv run python matrix_cli.py rooms --format json
-uv run python matrix_cli.py rooms --format simple
+uv run python matty.py rooms --format json
+uv run python matty.py rooms --format simple
 ```
 
 ### Working with Threads
 
 ```bash
 # List threads in a room
-uv run python matrix_cli.py threads lobby
+uv run python matty.py threads lobby
 
 # View messages in a specific thread (using simple ID)
-uv run python matrix_cli.py thread lobby t1
+uv run python matty.py thread lobby t1
 
 # Start a thread from a message
-uv run python matrix_cli.py thread-start lobby m2 "Starting a thread!"
+uv run python matty.py thread-start lobby m2 "Starting a thread!"
 
 # Reply in a thread (using simple thread ID)
-uv run python matrix_cli.py thread-reply lobby t1 "Reply in thread"
+uv run python matty.py thread-reply lobby t1 "Reply in thread"
 ```
 
 ### Message Handles and Replies
 
 ```bash
 # Reply to a message using handle
-uv run python matrix_cli.py reply lobby m3 "This is a reply!"
+uv run python matty.py reply lobby m3 "This is a reply!"
 
 # Reply to the 5th message in a room
-uv run python matrix_cli.py messages lobby --limit 10
-uv run python matrix_cli.py reply lobby m5 "Replying to message 5"
+uv run python matty.py messages lobby --limit 10
+uv run python matty.py reply lobby m5 "Replying to message 5"
 ```
 
 ## Message Handles and Thread IDs
@@ -213,20 +213,20 @@ The CLI supports three output formats:
 Example:
 ```bash
 # Pretty tables with colors
-uv run python matrix_cli.py rooms
+uv run python matty.py rooms
 
 # Simple text output
-uv run python matrix_cli.py rooms --format simple
+uv run python matty.py rooms --format simple
 
 # JSON for automation
-uv run python matrix_cli.py rooms --format json | jq '.[] | .name'
+uv run python matty.py rooms --format json | jq '.[] | .name'
 ```
 
 ## Project Structure
 
 ```
 matrix-cli/
-├── matrix_cli.py         # Main CLI application (functional style)
+├── matty.py         # Main CLI application (functional style)
 ├── test_client.py        # Connection testing utility
 ├── tests/                # Test suite
 │   ├── __init__.py
@@ -262,7 +262,7 @@ See `CLAUDE.md` for detailed development guidelines.
 uv run pytest tests/ -v
 
 # Test with coverage
-uv run pytest tests/ -v --cov=matrix_cli --cov-report=term-missing
+uv run pytest tests/ -v --cov=matty --cov-report=term-missing
 
 # Test connection to Matrix server
 uv run python test_client.py

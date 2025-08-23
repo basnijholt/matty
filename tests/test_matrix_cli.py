@@ -1,11 +1,11 @@
-"""Tests for matrix_cli module."""
+"""Tests for matty module."""
 
 from unittest.mock import MagicMock
 
 import pytest
 from typer.testing import CliRunner
 
-from matrix_cli import (
+from matty import (
     Config,
     Message,
     OutputFormat,
@@ -57,21 +57,21 @@ def test_id_mapping_functions(tmp_path, monkeypatch):
     """Test ID mapping functions."""
     # Use temporary file for testing
     test_file = tmp_path / "test_ids.json"
-    monkeypatch.setattr("matrix_cli.ID_MAP_FILE", test_file)
+    monkeypatch.setattr("matty.ID_MAP_FILE", test_file)
 
     # Reset global state
-    import matrix_cli
+    import matty
 
-    matrix_cli._id_counter = 0
-    matrix_cli._id_to_matrix = {}
-    matrix_cli._matrix_to_id = {}
+    matty._id_counter = 0
+    matty._id_to_matrix = {}
+    matty._matrix_to_id = {}
 
     # Test creating new ID
     matrix_id = "$test123:matrix.org"
     simple_id = _get_or_create_id(matrix_id)
     assert simple_id == 1
-    assert matrix_cli._id_to_matrix[1] == matrix_id
-    assert matrix_cli._matrix_to_id[matrix_id] == 1
+    assert matty._id_to_matrix[1] == matrix_id
+    assert matty._matrix_to_id[matrix_id] == 1
 
     # Test getting existing ID
     same_id = _get_or_create_id(matrix_id)
@@ -82,23 +82,23 @@ def test_id_mapping_functions(tmp_path, monkeypatch):
     assert test_file.exists()
 
     # Reset and load
-    matrix_cli._id_counter = 0
-    matrix_cli._id_to_matrix = {}
-    matrix_cli._matrix_to_id = {}
+    matty._id_counter = 0
+    matty._id_to_matrix = {}
+    matty._matrix_to_id = {}
 
     _load_id_mappings()
-    assert matrix_cli._id_counter == 1
-    assert matrix_cli._id_to_matrix[1] == matrix_id
-    assert matrix_cli._matrix_to_id[matrix_id] == 1
+    assert matty._id_counter == 1
+    assert matty._id_to_matrix[1] == matrix_id
+    assert matty._matrix_to_id[matrix_id] == 1
 
 
 def test_resolve_id():
     """Test ID resolution."""
-    import matrix_cli
+    import matty
 
     # Setup test data
-    matrix_cli._id_to_matrix = {1: "$test:matrix.org", 2: "!room:matrix.org"}
-    matrix_cli._matrix_to_id = {"$test:matrix.org": 1, "!room:matrix.org": 2}
+    matty._id_to_matrix = {1: "$test:matrix.org", 2: "!room:matrix.org"}
+    matty._matrix_to_id = {"$test:matrix.org": 1, "!room:matrix.org": 2}
 
     # Test simple ID resolution (just numbers)
     assert _resolve_id("1") == "$test:matrix.org"
@@ -139,7 +139,7 @@ async def test_login_failure():
     """Test login failure handling."""
     from nio import AsyncClient, LoginError
 
-    from matrix_cli import _login
+    from matty import _login
 
     client = MagicMock(spec=AsyncClient)
     client.login = MagicMock(side_effect=LoginError("Invalid password"))
@@ -155,7 +155,7 @@ async def test_send_message_success():
 
     from nio import AsyncClient
 
-    from matrix_cli import _send_message
+    from matty import _send_message
 
     client = MagicMock(spec=AsyncClient)
     client.room_send = AsyncMock(return_value=None)
@@ -172,7 +172,7 @@ async def test_send_message_with_thread():
 
     from nio import AsyncClient
 
-    from matrix_cli import _send_message
+    from matty import _send_message
 
     client = MagicMock(spec=AsyncClient)
     client.room_send = AsyncMock(return_value=None)
