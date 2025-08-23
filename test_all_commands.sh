@@ -30,15 +30,15 @@ section_echo "Testing all matty commands"
 ROOM="Dev"
 
 test_echo "Show help" "matty --help"
-uv run matty --help | head -5
+uv run matty --help
 echo
 
 test_echo "List all rooms" "matty rooms --format simple"
-uv run matty rooms --format simple | head -5
+uv run matty rooms --format simple
 echo
 
 test_echo "List rooms (alias)" "matty r --format simple"
-uv run matty r --format simple | head -3
+uv run matty r --format simple
 echo
 
 test_echo "Show messages in $ROOM" "matty messages $ROOM --limit 5"
@@ -54,7 +54,7 @@ uv run matty users "$ROOM" --format simple
 echo
 
 test_echo "Show users (alias)" "matty u $ROOM --format simple"
-uv run matty u "$ROOM" --format simple | head -3
+uv run matty u "$ROOM" --format simple
 echo
 
 test_echo "Send message to $ROOM" "matty send $ROOM 'Test message from script'"
@@ -134,15 +134,15 @@ echo
 section_echo "Testing different output formats"
 
 test_echo "Rich format (default)" "matty rooms --format rich"
-uv run matty rooms --format rich | head -8
+uv run matty rooms --format rich
 echo
 
 test_echo "Simple format" "matty rooms --format simple"
-uv run matty rooms --format simple | head -3
+uv run matty rooms --format simple
 echo
 
 test_echo "JSON format" "matty messages $ROOM --limit 5 --format json"
-uv run matty messages "$ROOM" --limit 5 --format json | head -15
+uv run matty messages "$ROOM" --limit 5 --format json
 echo
 
 section_echo "Testing with mentions"
