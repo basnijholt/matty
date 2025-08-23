@@ -36,7 +36,7 @@ async def test_connection():
 
             # Try to sync rooms
             console.print("[yellow]Syncing rooms...[/yellow]")
-            sync_response = await client.sync(timeout=5000)
+            await client.sync(timeout=5000)
 
             console.print(f"[green]✓ Found {len(client.rooms)} rooms[/green]")
 
