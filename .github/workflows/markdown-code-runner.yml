@@ -1,0 +1,80 @@
+name: Markdown Code Runner
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**.md'
+      - '.github/workflows/markdown-code-runner.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '**.md'
+  workflow_dispatch:
+
+jobs:
+  run-markdown-code:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: |
+          uv sync --all-extras --dev
+
+      - name: Extract and run Python code from markdown files
+        run: |
+          set -e
+          echo "Extracting Python code blocks from markdown files..."
+
+          # Find all markdown files
+          for file in $(find . -name "*.md" -type f); do
+            echo "Processing $file"
+
+            # Extract Python code blocks (```python or ```py)
+            awk '/^```python$|^```py$/,/^```$/ {
+              if (!/^```/) print
+            }' "$file" > temp_code.py
+
+            # Skip if no Python code found
+            if [ ! -s temp_code.py ]; then
+              echo "  No Python code blocks found in $file"
+              continue
+            fi
+
+            echo "  Running Python code from $file"
+
+            # Run the extracted code with uv run
+            # Continue on error to test all files
+            if uv run python temp_code.py; then
+              echo "  ✓ Code from $file executed successfully"
+            else
+              echo "  ✗ Code from $file failed to execute"
+              exit 1
+            fi
+
+            rm -f temp_code.py
+          done
+
+          echo "All markdown code blocks processed successfully!"
+
+      - name: Validate CLI examples in README
+        run: |
+          echo "Validating CLI command examples..."
+
+          # Test basic commands that should work
+          uv run python matrix_cli.py --help
+          uv run python matrix_cli.py rooms --help
+          uv run python matrix_cli.py messages --help
+          uv run python matrix_cli.py send --help
+
+          echo "✓ All CLI examples validated!"

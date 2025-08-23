@@ -148,8 +148,8 @@ known-first-party = ["matrix_cli"]
 ban-relative-imports = "all"
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*" = ["PLR2004", "S101", "TID252", "D"]
-"test_*.py" = ["PLR2004", "S101", "TID252", "D"]
+"tests/**/*" = ["PLR2004", "S101", "TID252", "D", "SLF001", "PLC0415"]
+"test_*.py" = ["PLR2004", "S101", "TID252", "D", "SLF001", "PLC0415"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 15
