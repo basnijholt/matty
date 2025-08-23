@@ -396,7 +396,7 @@ For faster typing, all commands have short aliases:
 matty rooms
 # or use alias: matty r
 
-# Show users in a room
+# Show users in a room (with mention hints)
 matty users lobby
 # or: matty u lobby
 
@@ -407,6 +407,10 @@ matty messages lobby --limit 10
 # Send a message to a room
 matty send lobby "Hello from CLI!"
 # or: matty s lobby "Hello from CLI!"
+
+# Send a message with mentions
+matty send lobby "@alice check this out!"
+# or: matty s lobby "@bob @alice meeting at 3pm"
 
 # Use different output formats
 matty rooms --format json
@@ -440,6 +444,30 @@ matty reply lobby m3 "This is a reply!"
 matty messages lobby --limit 10
 matty reply lobby m5 "Replying to message 5"
 ```
+
+### Mentions
+
+The CLI supports @mentions in messages:
+
+```bash
+# Mention a user by username
+matty send lobby "@alice can you check this?"
+
+# Multiple mentions
+matty send lobby "@bob @alice meeting in 5 minutes"
+
+# List users to see available mentions
+matty users lobby  # Shows User IDs and simplified @mentions
+
+# Mentions work in replies and threads too
+matty reply lobby m3 "@alice I agree with your point"
+matty thread-reply lobby t1 "@bob what do you think?"
+```
+
+The mention system will:
+- Automatically find the full Matrix ID for @username mentions
+- Support full Matrix IDs like @user:server.com
+- Format mentions properly so users get notified
 
 ## Message Handles and Thread IDs
 

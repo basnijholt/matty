@@ -4,6 +4,7 @@
 import asyncio
 import json
 import os
+import re
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -303,6 +304,51 @@ async def _get_thread_messages(
     return sorted(thread_messages, key=lambda m: m.timestamp)
 
 
+def _parse_mentions(message: str, room_users: list[str]) -> tuple[str, str | None]:
+    """Parse @mentions in message and return (body, formatted_body).
+
+    Handles:
+    - @username -> finds matching Matrix user ID
+    - @user:server.com -> uses full Matrix ID directly
+    """
+    formatted_body = None
+    body = message
+
+    # Find all @mentions in the message
+    mention_pattern = r"@(\S+)"
+    mentions = re.findall(mention_pattern, message)
+
+    if mentions:
+        formatted_body = message
+        for mention in mentions:
+            user_id = None
+
+            # Check if it's already a full Matrix ID
+            if ":" in mention:
+                user_id = f"@{mention}"
+            else:
+                # Try to find a matching user in the room
+                for room_user in room_users:
+                    # Match by local part (before :) or display name
+                    if (
+                        room_user.startswith(f"@{mention}:")
+                        or mention.lower() in room_user.lower()
+                    ):
+                        user_id = room_user
+                        break
+
+            if user_id:
+                # Create the mention HTML
+                mention_html = f'<a href="https://matrix.to/#/{user_id}">{user_id}</a>'
+                formatted_body = formatted_body.replace(f"@{mention}", mention_html)
+
+        # Only return formatted_body if we actually found valid mentions
+        if "<a href=" in formatted_body:
+            return body, formatted_body
+
+    return body, None
+
+
 async def _send_message(
     client: AsyncClient,
     room_id: str,
@@ -312,7 +358,19 @@ async def _send_message(
 ) -> bool:
     """Send a message to a room, optionally as a thread reply or regular reply."""
     try:
-        content = {"msgtype": "m.text", "body": message}
+        # Get room users for mention parsing
+        room = client.rooms.get(room_id)
+        room_users = list(room.users.keys()) if room else []
+
+        # Parse mentions
+        body, formatted_body = _parse_mentions(message, room_users)
+
+        content = {"msgtype": "m.text", "body": body}
+
+        # Add formatted body if we have mentions
+        if formatted_body:
+            content["format"] = "org.matrix.custom.html"
+            content["formatted_body"] = formatted_body
 
         # Add thread or reply relations
         if thread_root_id or reply_to_id:
@@ -443,11 +501,20 @@ def _display_users_rich(users: list[str], room_name: str) -> None:
     table = Table(title=f"Users in {room_name}", show_lines=True)
     table.add_column("#", style="cyan", width=3)
     table.add_column("User ID", style="green")
+    table.add_column("Mention", style="yellow")
 
     for idx, user in enumerate(users, 1):
-        table.add_row(str(idx), user)
+        # Extract username for mention (part before :)
+        if user.startswith("@") and ":" in user:
+            mention = "@" + user.split(":")[0][1:]
+        else:
+            mention = user
+        table.add_row(str(idx), user, mention)
 
     console.print(table)
+    console.print(
+        "\n[dim]Use mentions in messages: matty send room '@username message'[/dim]"
+    )
 
 
 def _display_users_simple(users: list[str], room_name: str) -> None:
@@ -610,6 +677,9 @@ async def _execute_send_command(
 
     try:
         if await _login(client, config.username, config.password):
+            # Sync to get room users for mentions
+            await _sync_client(client)
+
             room_info = await _find_room(client, room)
 
             if not room_info:
@@ -620,6 +690,8 @@ async def _execute_send_command(
 
             if await _send_message(client, room_id, message):
                 console.print(f"[green]✓ Message sent to {room_name}[/green]")
+                if "@" in message:
+                    console.print("[dim]Note: Mentions were processed[/dim]")
             else:
                 console.print("[red]✗ Failed to send message[/red]")
     finally:
@@ -680,11 +752,13 @@ def users(
 def send(
     ctx: typer.Context,
     room: str = typer.Argument(None, help="Room ID or name"),
-    message: str = typer.Argument(None, help="Message to send"),
+    message: str = typer.Argument(
+        None, help="Message to send (use @username for mentions)"
+    ),
     username: str | None = typer.Option(None, "--username", "-u"),
     password: str | None = typer.Option(None, "--password", "-p"),
 ):
-    """Send a message to a room. (alias: s)"""
+    """Send a message to a room. Supports @mentions. (alias: s)"""
     if room is None or message is None:
         console.print(ctx.get_help())
         raise typer.Exit(1)
