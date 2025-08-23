@@ -13,8 +13,10 @@ from enum import Enum
 from pathlib import Path
 
 import typer
+from dotenv import load_dotenv
 from nio import (
     AsyncClient,
+    ErrorResponse,
     ReactionEvent,
     RedactedEvent,
     RoomMessageText,
@@ -147,7 +149,6 @@ def _is_success_response(response: any) -> bool:
 
     This helper standardizes the checking.
     """
-    from nio import ErrorResponse  # noqa: PLC0415
 
     return response is not None and not isinstance(response, ErrorResponse)
 
@@ -227,7 +228,6 @@ class OutputFormat(str, Enum):
 
 def _load_config() -> Config:
     """Load configuration from environment variables."""
-    from dotenv import load_dotenv  # noqa: PLC0415
 
     load_dotenv()
 
@@ -244,7 +244,7 @@ async def _create_client(config: Config) -> AsyncClient:
     return AsyncClient(config.homeserver, config.username, ssl=config.ssl_verify)
 
 
-async def _login(client: AsyncClient, username: str, password: str) -> bool:  # noqa: ARG001
+async def _login(client: AsyncClient, password: str) -> bool:
     """Perform Matrix login."""
     try:
         response = await client.login(password)
@@ -542,8 +542,6 @@ async def _send_reaction(
 async def _remove_reaction(
     client: AsyncClient,
     room_id: str,
-    event_id: str,  # noqa: ARG001
-    emoji: str,  # noqa: ARG001
     reaction_event_id: str | None = None,
 ) -> bool:
     """Remove a reaction from a message.
@@ -748,7 +746,7 @@ async def _execute_rooms_command(
     client = await _create_client(config)
 
     try:
-        if await _login(client, config.username, config.password):
+        if await _login(client, config.password):
             rooms = await _get_rooms(client)
 
             if format == OutputFormat.rich:
@@ -783,7 +781,7 @@ async def _execute_messages_command(
     client = await _create_client(config)
 
     try:
-        if await _login(client, config.username, config.password):
+        if await _login(client, config.password):
             room_info = await _find_room(client, room)
 
             if not room_info:
@@ -824,7 +822,7 @@ async def _execute_users_command(
     client = await _create_client(config)
 
     try:
-        if await _login(client, config.username, config.password):
+        if await _login(client, config.password):
             rooms = await _get_rooms(client)
 
             # Find the room
@@ -869,7 +867,7 @@ async def _execute_send_command(
     client = await _create_client(config)
 
     try:
-        if await _login(client, config.username, config.password):
+        if await _login(client, config.password):
             # Sync to get room users for mentions
             await _sync_client(client)
 
@@ -917,7 +915,7 @@ async def _with_client(username: str | None = None, password: str | None = None)
     client = await _create_client(config)
 
     try:
-        if await _login(client, config.username, config.password):
+        if await _login(client, config.password):
             yield client, config.username, config.password
         else:
             console.print("[red]Login failed[/red]")

@@ -235,7 +235,7 @@ class TestAsyncFunctions:
             return_value=LoginResponse("@user:matrix.org", "device123", "token123")
         )
 
-        result = await _login(client, "user", "password")
+        result = await _login(client, "password")
         assert result is True
 
     @pytest.mark.asyncio
@@ -809,7 +809,7 @@ class TestErrorHandling:
         error = ErrorResponse("Invalid credentials", "M_FORBIDDEN")
         client.login = AsyncMock(return_value=error)
 
-        result = await _login(client, "user", "wrong_pass")
+        result = await _login(client, "wrong_pass")
         assert result is False
 
     @pytest.mark.asyncio

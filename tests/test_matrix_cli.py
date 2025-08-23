@@ -144,7 +144,7 @@ async def test_login_failure():
     client = MagicMock(spec=AsyncClient)
     client.login = MagicMock(side_effect=LoginError("Invalid password"))
 
-    result = await _login(client, "user", "wrong_password")
+    result = await _login(client, "wrong_password")
     assert result is False
 
 
