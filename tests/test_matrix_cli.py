@@ -64,7 +64,7 @@ def test_id_mapping_functions(tmp_path, monkeypatch):
         return test_state_dir / "test.matrix.org.json"
 
     monkeypatch.setattr("matty._get_state_file", _get_test_state_file)
-    monkeypatch.setattr("matty._state_cache", {})
+    monkeypatch.setattr("matty._state", None)
 
     # Test creating new ID
     matrix_id = "$test123:matrix.org"
@@ -80,7 +80,7 @@ def test_id_mapping_functions(tmp_path, monkeypatch):
     assert state_file.exists()
 
     # Clear cache and test that ID persists
-    matty._state_cache = {}
+    matty._state = None
     loaded_id = _get_or_create_id(matrix_id)
     assert loaded_id == 1
 
@@ -96,7 +96,7 @@ def test_resolve_id(tmp_path, monkeypatch):
         return test_state_dir / "test.matrix.org.json"
 
     monkeypatch.setattr("matty._get_state_file", _get_test_state_file)
-    monkeypatch.setattr("matty._state_cache", {})
+    monkeypatch.setattr("matty._state", None)
 
     # Setup test data by creating IDs
     _get_or_create_id("$test:matrix.org")  # Will be ID 1

@@ -71,9 +71,8 @@ class ServerState(BaseModel):
     message_handles: MessageHandleMapping = Field(default_factory=MessageHandleMapping)
 
 
-# State storage configuration
-_current_server: str | None = None
-_state_cache: dict[str, ServerState] = {}  # server -> state data
+# State storage - single state per matty instance
+_state: ServerState | None = None
 
 
 # =============================================================================
@@ -81,22 +80,13 @@ _state_cache: dict[str, ServerState] = {}  # server -> state data
 # =============================================================================
 
 
-def _get_current_server() -> str:
-    """Get the current server from config."""
-    config = _load_config()
-    return config.homeserver
-
-
-def _get_state_file(server: str | None = None) -> Path:
+def _get_state_file(homeserver: str) -> Path:
     """Get the state file path for a server."""
-    if server is None:
-        server = _get_current_server()
-
     # Extract domain from server URL
-    if server.startswith(("http://", "https://")):
-        domain = urlparse(server).netloc
+    if homeserver.startswith(("http://", "https://")):
+        domain = urlparse(homeserver).netloc
     else:
-        domain = server
+        domain = homeserver
 
     # Create state directory if it doesn't exist
     state_dir = Path.home() / ".config" / "matty" / "state"
@@ -105,45 +95,37 @@ def _get_state_file(server: str | None = None) -> Path:
     return state_dir / f"{domain}.json"
 
 
-def _load_state(server: str | None = None) -> ServerState:
-    """Load state for a server."""
-    global _state_cache  # noqa: PLW0602
+def _load_state() -> ServerState:
+    """Load or create state for the current server."""
+    global _state  # noqa: PLW0603
 
-    if server is None:
-        server = _get_current_server()
+    # Return cached state if available
+    if _state is not None:
+        return _state
 
-    # Check cache first
-    if server in _state_cache:
-        return _state_cache[server]
-
-    state_file = _get_state_file(server)
+    # Get the state file for the current server
+    config = _load_config()
+    state_file = _get_state_file(config.homeserver)
 
     if state_file.exists():
         with state_file.open() as f:
-            state = ServerState.model_validate(json.load(f))
+            _state = ServerState.model_validate(json.load(f))
     else:
-        state = ServerState()
+        _state = ServerState()
 
-    _state_cache[server] = state
-    return state
+    return _state
 
 
-def _save_state(server: str | None = None) -> None:
-    """Save state for a server."""
-    if server is None:
-        server = _get_current_server()
+def _save_state() -> None:
+    """Save the current state."""
+    if _state is None:
+        return
 
-    state = _load_state(server)
-    state_file = _get_state_file(server)
+    config = _load_config()
+    state_file = _get_state_file(config.homeserver)
 
     with state_file.open("w") as f:
-        json.dump(state.model_dump(), f, indent=2)
-
-
-def _set_current_server(server: str) -> None:
-    """Set the current server for state management."""
-    global _current_server  # noqa: PLW0603
-    _current_server = server
+        json.dump(_state.model_dump(), f, indent=2)
 
 
 def _get_or_create_mapping(
@@ -384,8 +366,6 @@ def _load_config() -> Config:
 
 async def _create_client(config: Config) -> AsyncClient:
     """Create a Matrix client instance."""
-    # Set current server for state management
-    _set_current_server(config.homeserver)
     return AsyncClient(config.homeserver, config.username, ssl=config.ssl_verify)
 
 

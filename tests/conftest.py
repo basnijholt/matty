@@ -42,8 +42,8 @@ def env_setup(monkeypatch, tmp_path):
 
     monkeypatch.setattr("matty._get_state_file", _get_test_state_file)
 
-    # Clear the state cache for tests
-    monkeypatch.setattr("matty._state_cache", {})
+    # Clear the state for tests
+    monkeypatch.setattr("matty._state", None)
 
     yield
 
