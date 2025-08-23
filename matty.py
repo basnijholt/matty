@@ -109,6 +109,25 @@ def _resolve_id(id_or_matrix: str) -> str | None:
     return None
 
 
+def _resolve_thread_id(thread_id: str) -> tuple[str | None, str | None]:
+    """Resolve thread ID (t1, t2, etc.) to Matrix ID.
+
+    Returns:
+        tuple: (resolved_id, error_message) where error_message is None on success
+    """
+    if thread_id.startswith("t"):
+        try:
+            simple_id = int(thread_id[1:])
+            resolved_id = _resolve_id(str(simple_id))
+            if resolved_id:
+                return resolved_id, None
+            return None, f"[red]Thread ID {thread_id} not found[/red]"  # noqa: TRY300
+        except ValueError:
+            return None, f"[red]Invalid thread ID format: {thread_id}[/red]"
+    else:
+        return thread_id, None
+
+
 # =============================================================================
 # Data Models (using dataclasses instead of Pydantic for simplicity)
 # =============================================================================
@@ -971,20 +990,10 @@ def thread(
 
     async def _thread():
         # Resolve thread ID if it's a simple ID (t1, t2, etc.)
-        if thread_id.startswith("t"):
-            try:
-                simple_id = int(thread_id[1:])
-                resolved_id = _resolve_id(str(simple_id))
-                if resolved_id:
-                    actual_thread_id = resolved_id
-                else:
-                    console.print(f"[red]Thread ID {thread_id} not found[/red]")
-                    return
-            except ValueError:
-                console.print(f"[red]Invalid thread ID format: {thread_id}[/red]")
-                return
-        else:
-            actual_thread_id = thread_id
+        actual_thread_id, error_msg = _resolve_thread_id(thread_id)
+        if error_msg:
+            console.print(error_msg)
+            return
 
         async with _with_client_in_room(room, username, password) as (
             client,
@@ -1161,20 +1170,10 @@ def thread_reply(
 
     async def _thread_reply():
         # Resolve thread ID if it's a simple ID (t1, t2, etc.)
-        if thread_id.startswith("t"):
-            try:
-                simple_id = int(thread_id[1:])
-                resolved_id = _resolve_id(str(simple_id))
-                if resolved_id:
-                    actual_thread_id = resolved_id
-                else:
-                    console.print(f"[red]Thread ID {thread_id} not found[/red]")
-                    return
-            except ValueError:
-                console.print(f"[red]Invalid thread ID format: {thread_id}[/red]")
-                return
-        else:
-            actual_thread_id = thread_id
+        actual_thread_id, error_msg = _resolve_thread_id(thread_id)
+        if error_msg:
+            console.print(error_msg)
+            return
 
         async with _with_client_in_room(room, username, password) as (
             client,
