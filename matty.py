@@ -13,7 +13,13 @@ from enum import Enum
 from pathlib import Path
 
 import typer
-from nio import AsyncClient, LoginResponse, ReactionEvent, RoomMessageText
+from nio import (
+    AsyncClient,
+    LoginResponse,
+    ReactionEvent,
+    RedactedEvent,
+    RoomMessageText,
+)
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -283,19 +289,18 @@ async def _get_messages(
                 reply_to_id = None
 
                 # Check for thread relation
-                if isinstance(event, RoomMessageText) and hasattr(event, "source"):
-                    content = event.source.get("content", {})
-                    if "m.relates_to" in content:
-                        relates_to = content["m.relates_to"]
+                content = event.source.get("content", {})
+                if "m.relates_to" in content:
+                    relates_to = content["m.relates_to"]
 
-                        # Thread relation
-                        if relates_to.get("rel_type") == "m.thread":
-                            thread_root_id = relates_to.get("event_id")
-                            thread_roots.add(thread_root_id)
+                    # Thread relation
+                    if relates_to.get("rel_type") == "m.thread":
+                        thread_root_id = relates_to.get("event_id")
+                        thread_roots.add(thread_root_id)
 
-                        # Reply relation (in thread or main timeline)
-                        if "m.in_reply_to" in relates_to:
-                            reply_to_id = relates_to["m.in_reply_to"].get("event_id")
+                    # Reply relation (in thread or main timeline)
+                    if "m.in_reply_to" in relates_to:
+                        reply_to_id = relates_to["m.in_reply_to"].get("event_id")
 
                 messages.append(
                     Message(
@@ -310,6 +315,23 @@ async def _get_messages(
                         reply_to_id=reply_to_id,
                         is_thread_root=False,  # Will update after
                         reactions={},  # Will populate below
+                    )
+                )
+            # Handle redacted/deleted messages
+            elif isinstance(event, RedactedEvent):
+                messages.append(
+                    Message(
+                        sender=event.sender,
+                        content="[Message deleted]",
+                        timestamp=datetime.fromtimestamp(
+                            event.server_timestamp / 1000, tz=UTC
+                        ),
+                        room_id=room_id,
+                        event_id=event.event_id,
+                        thread_root_id=None,
+                        reply_to_id=None,
+                        is_thread_root=False,
+                        reactions={},
                     )
                 )
             # Handle reaction events
@@ -1327,6 +1349,55 @@ def react(
                 console.print("[red]✗ Failed to send reaction[/red]")
 
     asyncio.run(_react())
+
+
+@app.command("redact")
+@app.command("del", hidden=True)
+def redact(
+    ctx: typer.Context,
+    room: str = typer.Argument(None, help="Room ID or name"),
+    handle: str = typer.Argument(
+        None, help="Message handle (m1, m2, etc.) to redact/delete"
+    ),
+    reason: str = typer.Option(None, "--reason", "-r", help="Reason for redaction"),
+    username: str | None = typer.Option(None, "--username", "-u"),
+    password: str | None = typer.Option(None, "--password", "-p"),
+):
+    """Delete/redact a message using its handle. (alias: del)"""
+    _validate_required_args(ctx, room=room, handle=handle)
+
+    async def _redact():
+        async with _with_client_in_room(room, username, password) as (
+            client,
+            room_id,
+            room_name,
+        ):
+            if client is None:
+                return
+
+            # Get the message to redact
+            target_msg = await _get_message_by_handle(client, room_id, handle)
+
+            if not target_msg:
+                console.print(f"[red]Message {handle} not found[/red]")
+                return
+
+            if not target_msg.event_id:
+                console.print(f"[red]Message {handle} has no event ID[/red]")
+                return
+
+            # Redact the message
+            try:
+                await client.room_redact(room_id, target_msg.event_id, reason=reason)
+                console.print(
+                    f"[green]✓ Message {handle} redacted in {room_name}[/green]"
+                )
+                if reason:
+                    console.print(f"[dim]Reason: {reason}[/dim]")
+            except Exception as e:
+                console.print(f"[red]Failed to redact message: {e}[/red]")
+
+    asyncio.run(_redact())
 
 
 @app.command("reactions")
