@@ -96,6 +96,7 @@ MATRIX_SSL_VERIFY=true  # Set to false for test servers
 │                ts)                                                           │
 │ thread-reply   Reply within an existing thread. (alias: tr)                  │
 │ react          Add a reaction to a message using its handle. (alias: rx)     │
+│ edit           Edit a message using its handle. (alias: e)                   │
 │ redact         Delete/redact a message using its handle. (alias: del)        │
 │ reactions      Show detailed reactions for a specific message. (alias: rxs)  │
 ╰──────────────────────────────────────────────────────────────────────────────╯
