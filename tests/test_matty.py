@@ -333,6 +333,56 @@ class TestAsyncFunctions:
         assert messages[0].sender == "@user:matrix.org"
 
     @pytest.mark.asyncio
+    async def test_get_messages_with_edit(self):
+        """Test getting messages with edits."""
+        from nio import RoomMessageText
+
+        client = MagicMock(spec=AsyncClient)
+
+        # Create original message
+        original_msg = MagicMock(spec=RoomMessageText)
+        original_msg.sender = "@user:matrix.org"
+        original_msg.body = "Original message"
+        original_msg.server_timestamp = 1704110400000
+        original_msg.event_id = "$event123"
+        original_msg.source = {
+            "content": {"body": "Original message", "msgtype": "m.text"}
+        }
+
+        # Create edit event
+        edit_msg = MagicMock(spec=RoomMessageText)
+        edit_msg.sender = "@user:matrix.org"
+        edit_msg.body = "* Edited message"
+        edit_msg.server_timestamp = 1704110500000
+        edit_msg.event_id = "$edit456"
+        edit_msg.source = {
+            "content": {
+                "body": "* Edited message",
+                "msgtype": "m.text",
+                "m.new_content": {
+                    "body": "Edited message",
+                    "msgtype": "m.text",
+                },
+                "m.relates_to": {
+                    "rel_type": "m.replace",
+                    "event_id": "$event123",
+                },
+            }
+        }
+
+        # Create mock response with both messages
+        mock_response = MagicMock()
+        mock_response.chunk = [original_msg, edit_msg]
+
+        client.room_messages = AsyncMock(return_value=mock_response)
+
+        messages = await _get_messages(client, "!room:matrix.org", limit=10)
+        assert len(messages) == 1  # Only the original message should appear
+        assert "Edited message" in messages[0].content
+        assert "[edited]" in messages[0].content
+        assert messages[0].sender == "@user:matrix.org"
+
+    @pytest.mark.asyncio
     async def test_send_message_reply(self):
         """Test sending a reply message."""
         client = MagicMock(spec=AsyncClient)

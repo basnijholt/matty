@@ -10,9 +10,7 @@ from matty import (
     Message,
     OutputFormat,
     _get_or_create_id,
-    _load_id_mappings,
     _resolve_id,
-    _save_id_mappings,
     app,
 )
 
@@ -55,50 +53,54 @@ def test_output_format_enum():
 
 def test_id_mapping_functions(tmp_path, monkeypatch):
     """Test ID mapping functions."""
-    # Use temporary file for testing
-    test_file = tmp_path / "test_ids.json"
-    monkeypatch.setattr("matty.ID_MAP_FILE", test_file)
-
-    # Reset global state
     import matty
 
-    matty._id_counter = 0
-    matty._id_to_matrix = {}
-    matty._matrix_to_id = {}
+    # Use temporary state directory for testing
+    test_state_dir = tmp_path / ".config" / "matty" / "state"
+    test_state_dir.mkdir(parents=True, exist_ok=True)
+
+    # Patch the state file path to use test directory
+    def _get_test_state_file(server=None):  # noqa: ARG001
+        return test_state_dir / "test.matrix.org.json"
+
+    monkeypatch.setattr("matty._get_state_file", _get_test_state_file)
+    monkeypatch.setattr("matty._state_cache", {})
 
     # Test creating new ID
     matrix_id = "$test123:matrix.org"
     simple_id = _get_or_create_id(matrix_id)
     assert simple_id == 1
-    assert matty._id_to_matrix[1] == matrix_id
-    assert matty._matrix_to_id[matrix_id] == 1
 
     # Test getting existing ID
     same_id = _get_or_create_id(matrix_id)
     assert same_id == 1
 
-    # Test saving and loading
-    _save_id_mappings()
-    assert test_file.exists()
+    # Verify the state was saved
+    state_file = test_state_dir / "test.matrix.org.json"
+    assert state_file.exists()
 
-    # Reset and load
-    matty._id_counter = 0
-    matty._id_to_matrix = {}
-    matty._matrix_to_id = {}
-
-    _load_id_mappings()
-    assert matty._id_counter == 1
-    assert matty._id_to_matrix[1] == matrix_id
-    assert matty._matrix_to_id[matrix_id] == 1
+    # Clear cache and test that ID persists
+    matty._state_cache = {}
+    loaded_id = _get_or_create_id(matrix_id)
+    assert loaded_id == 1
 
 
-def test_resolve_id():
+def test_resolve_id(tmp_path, monkeypatch):
     """Test ID resolution."""
-    import matty
 
-    # Setup test data
-    matty._id_to_matrix = {1: "$test:matrix.org", 2: "!room:matrix.org"}
-    matty._matrix_to_id = {"$test:matrix.org": 1, "!room:matrix.org": 2}
+    # Use temporary state directory for testing
+    test_state_dir = tmp_path / ".config" / "matty" / "state"
+    test_state_dir.mkdir(parents=True, exist_ok=True)
+
+    def _get_test_state_file(server=None):  # noqa: ARG001
+        return test_state_dir / "test.matrix.org.json"
+
+    monkeypatch.setattr("matty._get_state_file", _get_test_state_file)
+    monkeypatch.setattr("matty._state_cache", {})
+
+    # Setup test data by creating IDs
+    _get_or_create_id("$test:matrix.org")  # Will be ID 1
+    _get_or_create_id("!room:matrix.org")  # Will be ID 2
 
     # Test simple ID resolution (just numbers)
     assert _resolve_id("1") == "$test:matrix.org"

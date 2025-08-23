@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
+from urllib.parse import urlparse
 
 import typer
 from dotenv import load_dotenv
@@ -32,11 +33,19 @@ app = typer.Typer(
 )
 console = Console()
 
-# Global ID mapping storage
-ID_MAP_FILE = Path.home() / ".matrix_cli_ids.json"
-_id_counter = 0
-_id_to_matrix: dict[int, str] = {}
-_matrix_to_id: dict[str, int] = {}
+# State storage configuration
+_current_server: str | None = None
+_state_cache: dict[str, dict] = {}  # server -> state data
+
+# State structure for each server:
+# {
+#   "thread_ids": {"counter": int, "id_to_matrix": {}, "matrix_to_id": {}},
+#   "message_handles": {
+#     "handle_counter": {room_id: int},
+#     "room_handles": {room_id: {event_id: handle}},
+#     "room_handle_to_event": {room_id: {handle: event_id}}
+#   }
+# }
 
 
 # =============================================================================
@@ -44,68 +53,224 @@ _matrix_to_id: dict[str, int] = {}
 # =============================================================================
 
 
-def _load_id_mappings() -> None:
-    """Load ID mappings from persistent storage."""
-    global _id_counter, _id_to_matrix, _matrix_to_id  # noqa: PLW0603
+def _get_current_server() -> str:
+    """Get the current server from config."""
+    config = _load_config()
+    return config.homeserver
 
-    if ID_MAP_FILE.exists():
-        try:
-            with ID_MAP_FILE.open() as f:
-                data = json.load(f)
-                _id_counter = data.get("counter", 0)
-                _id_to_matrix = {
-                    int(k): v for k, v in data.get("id_to_matrix", {}).items()
+
+def _get_state_file(server: str | None = None) -> Path:
+    """Get the state file path for a server."""
+    if server is None:
+        server = _get_current_server()
+
+    # Extract domain from server URL
+    if server.startswith(("http://", "https://")):
+        domain = urlparse(server).netloc
+    else:
+        domain = server
+
+    # Create state directory if it doesn't exist
+    state_dir = Path.home() / ".config" / "matty" / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+
+    return state_dir / f"{domain}.json"
+
+
+def _load_state(server: str | None = None) -> dict:
+    """Load state for a server."""
+    global _state_cache  # noqa: PLW0602
+
+    if server is None:
+        server = _get_current_server()
+
+    # Check cache first
+    if server in _state_cache:
+        return _state_cache[server]
+
+    state_file = _get_state_file(server)
+    state = {
+        "thread_ids": {"counter": 0, "id_to_matrix": {}, "matrix_to_id": {}},
+        "message_handles": {
+            "handle_counter": {},
+            "room_handles": {},
+            "room_handle_to_event": {},
+        },
+    }
+
+    if state_file.exists():
+        with state_file.open() as f:
+            loaded_state = json.load(f)
+            # Merge loaded state with defaults
+            state.update(loaded_state)
+            # Convert string keys to int for id_to_matrix
+            if "thread_ids" in state and "id_to_matrix" in state["thread_ids"]:
+                state["thread_ids"]["id_to_matrix"] = {
+                    int(k): v for k, v in state["thread_ids"]["id_to_matrix"].items()
                 }
-                _matrix_to_id = data.get("matrix_to_id", {})
-        except Exception as e:
-            console.print(f"[yellow]Warning: Could not load ID mappings: {e}[/yellow]")
+
+    _state_cache[server] = state
+    return state
 
 
-def _save_id_mappings() -> None:
-    """Save ID mappings to persistent storage."""
-    try:
-        data = {
-            "counter": _id_counter,
-            "id_to_matrix": _id_to_matrix,
-            "matrix_to_id": _matrix_to_id,
+def _save_state(server: str | None = None) -> None:
+    """Save state for a server."""
+    if server is None:
+        server = _get_current_server()
+
+    state = _load_state(server)
+    state_file = _get_state_file(server)
+
+    with state_file.open("w") as f:
+        json.dump(state, f, indent=2)
+
+
+def _migrate_old_files() -> None:
+    """Migrate old storage files to new structure."""
+    # Migrate thread IDs
+    old_id_file = Path.home() / ".matrix_cli_ids.json"
+    if old_id_file.exists():
+        with old_id_file.open() as f:
+            old_data = json.load(f)
+
+        state = _load_state("default")
+        state["thread_ids"] = {
+            "counter": old_data.get("counter", 0),
+            "id_to_matrix": {
+                int(k): v for k, v in old_data.get("id_to_matrix", {}).items()
+            },
+            "matrix_to_id": old_data.get("matrix_to_id", {}),
         }
-        with ID_MAP_FILE.open("w") as f:
-            json.dump(data, f, indent=2)
-    except Exception as e:
-        console.print(f"[yellow]Warning: Could not save ID mappings: {e}[/yellow]")
+        _save_state("default")
+        old_id_file.rename(old_id_file.with_suffix(".json.bak"))
+
+    # Migrate handle mappings
+    old_handle_file = Path.home() / ".matrix_cli_handles.json"
+    if old_handle_file.exists():
+        with old_handle_file.open() as f:
+            old_data = json.load(f)
+
+        state = _load_state("default")
+        state["message_handles"] = {
+            "handle_counter": old_data.get("handle_counter", {}),
+            "room_handles": old_data.get("room_handles", {}),
+            "room_handle_to_event": old_data.get("room_handle_to_event", {}),
+        }
+        _save_state("default")
+        old_handle_file.rename(old_handle_file.with_suffix(".json.bak"))
+
+
+def _set_current_server(server: str) -> None:
+    """Set the current server for state management."""
+    global _current_server  # noqa: PLW0603
+    _current_server = server
+    # Migrate old files on first use
+    _migrate_old_files()
+
+
+def _get_or_create_mapping(
+    category: str,  # "thread_ids" or "message_handles"
+    key: str,  # matrix_id for threads, event_id for handles
+    room_id: str | None = None,  # Required for message handles
+    prefix: str = "",  # "t" for threads, "m" for messages
+) -> str:
+    """Generic function to get or create ID mappings.
+
+    Returns the mapped ID (either numeric for threads or handle for messages).
+    """
+    state = _load_state()
+    data = state[category]
+
+    if category == "thread_ids":
+        # Thread ID logic - simple bidirectional mapping
+        if key in data["matrix_to_id"]:
+            return f"{prefix}{data['matrix_to_id'][key]}"
+
+        data["counter"] += 1
+        simple_id = data["counter"]
+        data["id_to_matrix"][simple_id] = key
+        data["matrix_to_id"][key] = simple_id
+        _save_state()
+        return f"{prefix}{simple_id}"
+
+    if category == "message_handles" and room_id:
+        # Message handle logic - per-room bidirectional mapping
+        if room_id not in data["room_handles"]:
+            data["room_handles"][room_id] = {}
+            data["room_handle_to_event"][room_id] = {}
+            data["handle_counter"][room_id] = 0
+
+        if key in data["room_handles"][room_id]:
+            return data["room_handles"][room_id][key]
+
+        data["handle_counter"][room_id] += 1
+        handle = f"{prefix}{data['handle_counter'][room_id]}"
+        data["room_handles"][room_id][key] = handle
+        data["room_handle_to_event"][room_id][handle] = key
+        _save_state()
+        return handle
+
+    return ""
 
 
 def _get_or_create_id(matrix_id: str) -> int:
     """Get existing simple ID or create new one for a Matrix ID."""
-    global _id_counter  # noqa: PLW0603
+    result = _get_or_create_mapping("thread_ids", matrix_id, prefix="t")
+    return int(result[1:])  # Remove 't' prefix and return as int
 
-    if not _id_to_matrix:  # First run, load from disk
-        _load_id_mappings()
 
-    if matrix_id in _matrix_to_id:
-        return _matrix_to_id[matrix_id]
+def _lookup_mapping(
+    category: str,
+    lookup_key: str,
+    room_id: str | None = None,
+    reverse: bool = False,
+) -> str | None:
+    """Generic lookup for ID mappings.
 
-    # Create new mapping
-    _id_counter += 1
-    simple_id = _id_counter
-    _id_to_matrix[simple_id] = matrix_id
-    _matrix_to_id[matrix_id] = simple_id
+    Args:
+        category: "thread_ids" or "message_handles"
+        lookup_key: The key to look up
+        room_id: Required for message handles
+        reverse: If True, lookup handle->event_id, else event_id->handle
+    """
+    state = _load_state()
+    data = state[category]
 
-    # Save immediately to persist
-    _save_id_mappings()
+    if category == "thread_ids":
+        if reverse:
+            # Looking up simple_id -> matrix_id
+            try:
+                simple_id = int(lookup_key)
+                return data["id_to_matrix"].get(simple_id)
+            except ValueError:
+                return None
+        else:
+            # Looking up matrix_id -> simple_id
+            return (
+                str(data["matrix_to_id"].get(lookup_key))
+                if lookup_key in data["matrix_to_id"]
+                else None
+            )
 
-    return simple_id
+    elif category == "message_handles" and room_id:
+        if room_id not in data.get("room_handles", {}):
+            return None
+
+        if reverse:
+            # Looking up handle -> event_id
+            return data["room_handle_to_event"][room_id].get(lookup_key)
+        # Looking up event_id -> handle
+        return data["room_handles"][room_id].get(lookup_key)
+
+    return None
 
 
 def _resolve_id(id_or_matrix: str) -> str | None:
     """Resolve a simple ID or Matrix ID to a Matrix ID."""
-    if not _id_to_matrix:  # First run, load from disk
-        _load_id_mappings()
-
     # Check if it's a simple ID (just a number)
     try:
         simple_id = int(id_or_matrix)
-        return _id_to_matrix.get(simple_id)
+        return _lookup_mapping("thread_ids", str(simple_id), reverse=True)
     except ValueError:
         pass
 
@@ -243,6 +408,8 @@ def _load_config() -> Config:
 
 async def _create_client(config: Config) -> AsyncClient:
     """Create a Matrix client instance."""
+    # Set current server for state management
+    _set_current_server(config.homeserver)
     return AsyncClient(config.homeserver, config.username, ssl=config.ssl_verify)
 
 
@@ -294,38 +461,100 @@ async def _find_room(client: AsyncClient, room_query: str) -> tuple[str, str] | 
     return None
 
 
+# Handle mapping functions moved to unified state system
+
+
+def _get_or_create_handle(room_id: str, event_id: str) -> str:
+    """Get existing handle or create new one for a message."""
+    return _get_or_create_mapping("message_handles", event_id, room_id, prefix="m")
+
+
+def _get_event_id_from_handle(room_id: str, handle: str) -> str | None:
+    """Get event ID from a handle."""
+    return _lookup_mapping("message_handles", handle, room_id, reverse=True)
+
+
 def _assign_message_handles(messages: list[Message]) -> list[Message]:
-    """Assign display handles to messages based on their position."""
-    for idx, msg in enumerate(messages, 1):
-        msg.handle = f"m{idx}"
+    """Assign stable handles to messages."""
+    for msg in messages:
+        if msg.event_id and msg.room_id:
+            # Get or create stable handle for this message
+            msg.handle = _get_or_create_handle(msg.room_id, msg.event_id)
+
+        # Handle thread IDs (using existing system)
         if msg.is_thread_root and msg.event_id:
             thread_simple_id = _get_or_create_id(msg.event_id)
             msg.thread_handle = f"t{thread_simple_id}"
         elif msg.thread_root_id:
             thread_simple_id = _get_or_create_id(msg.thread_root_id)
             msg.thread_handle = f"t{thread_simple_id}"
+
     return messages
 
 
 async def _get_messages(
     client: AsyncClient, room_id: str, limit: int = 20
 ) -> list[Message]:
-    """Fetch messages from a room, including thread information and reactions."""
+    """Fetch messages from a room, including thread information, reactions, and edits."""
     try:
         response = await client.room_messages(room_id, limit=limit)
 
         messages = []
         thread_roots = set()  # Track which messages have threads
         reactions_map = {}  # event_id -> {emoji: [users]}
+        edits_map = {}  # original_event_id -> latest_edit_event
 
+        # First pass: collect edits
         for event in response.chunk:
             if isinstance(event, RoomMessageText):
+                content = event.source.get("content", {})
+                # Check if this is an edit (m.replace relation)
+                if (
+                    "m.relates_to" in content
+                    and (relates_to := content["m.relates_to"])
+                    and relates_to.get("rel_type") == "m.replace"
+                    and (original_id := relates_to.get("event_id"))
+                    and (
+                        original_id not in edits_map
+                        or event.server_timestamp
+                        > edits_map[original_id].server_timestamp
+                    )
+                ):
+                    edits_map[original_id] = event
+
+        # Second pass: build message list
+        for event in response.chunk:
+            if isinstance(event, RoomMessageText):
+                # Skip if this is an edit event (already processed)
+                content = event.source.get("content", {})
+                if "m.relates_to" in content:
+                    relates_to = content["m.relates_to"]
+                    if relates_to.get("rel_type") == "m.replace":
+                        continue  # Skip edit events themselves
+
+                # Check if this message has been edited
+                if event.event_id in edits_map:
+                    edit_event = edits_map[event.event_id]
+                    edit_content = edit_event.source.get("content", {})
+                    # Get the new content from m.new_content field
+                    if "m.new_content" in edit_content:
+                        message_content = edit_content["m.new_content"].get(
+                            "body", event.body
+                        )
+                    else:
+                        # Fallback: remove the "* " prefix from edit body
+                        message_content = edit_event.body
+                        if message_content.startswith("* "):
+                            message_content = message_content[2:]
+                    message_content = f"{message_content} [edited]"
+                else:
+                    message_content = event.body
+
                 # Check if this message is part of a thread
                 thread_root_id = None
                 reply_to_id = None
 
                 # Check for thread relation
-                content = event.source.get("content", {})
                 if "m.relates_to" in content:
                     relates_to = content["m.relates_to"]
 
@@ -341,7 +570,7 @@ async def _get_messages(
                 messages.append(
                     Message(
                         sender=event.sender,
-                        content=event.body,
+                        content=message_content,
                         timestamp=datetime.fromtimestamp(
                             event.server_timestamp / 1000, tz=UTC
                         ),
@@ -591,10 +820,25 @@ async def _remove_reaction(
 async def _get_message_by_handle(
     client: AsyncClient, room_id: str, handle: str, limit: int = 20
 ) -> Message | None:
-    """Get a message by its handle (m1, m2, etc.) from recent messages."""
-    messages = await _get_messages(client, room_id, limit)
+    """Get a message by its stable handle (m1, m2, etc.)."""
+    # First try to get event ID from our stable mapping
+    event_id = _get_event_id_from_handle(room_id, handle)
 
-    # Find message with matching handle
+    if event_id:
+        # We know the event ID, fetch messages and find it
+        messages = await _get_messages(client, room_id, limit)
+        for msg in messages:
+            if msg.event_id == event_id:
+                return msg
+
+        # If not in recent messages, try fetching more
+        messages = await _get_messages(client, room_id, limit * 5)
+        for msg in messages:
+            if msg.event_id == event_id:
+                return msg
+
+    # Fallback: search by handle in current messages
+    messages = await _get_messages(client, room_id, limit)
     for msg in messages:
         if msg.handle == handle:
             return msg
@@ -1388,6 +1632,95 @@ def react(
                 console.print("[red]✗ Failed to send reaction[/red]")
 
     asyncio.run(_react())
+
+
+@app.command("edit")
+@app.command("e", hidden=True)
+def edit(
+    ctx: typer.Context,
+    room: str = typer.Argument(None, help="Room ID or name"),
+    handle: str = typer.Argument(None, help="Message handle (m1, m2, etc.) to edit"),
+    new_content: str = typer.Argument(None, help="New message content"),
+    username: str | None = typer.Option(None, "--username", "-u"),
+    password: str | None = typer.Option(None, "--password", "-p"),
+):
+    """Edit a message using its handle. (alias: e)"""
+    _validate_required_args(ctx, room=room, handle=handle, new_content=new_content)
+
+    async def _edit():
+        async with _with_client_in_room(room, username, password) as (
+            client,
+            room_id,
+            room_name,
+        ):
+            if client is None:
+                return
+
+            # Get the message to edit
+            target_msg = await _get_message_by_handle(client, room_id, handle)
+
+            if not target_msg:
+                console.print(f"[red]Message {handle} not found[/red]")
+                return
+
+            if not target_msg.event_id:
+                console.print(f"[red]Message {handle} has no event ID[/red]")
+                return
+
+            # Get room users for mention parsing
+            room_obj = client.rooms.get(room_id)
+            room_users = list(room_obj.users.keys()) if room_obj else []
+
+            # Parse mentions
+            body, formatted_body, mentioned_user_ids = _parse_mentions(
+                new_content, room_users
+            )
+
+            # Create edit content with m.replace relation
+            edit_content = {
+                "msgtype": "m.text",
+                "body": f"* {body}",  # Convention: prefix with * for edits
+                "m.new_content": {
+                    "msgtype": "m.text",
+                    "body": body,
+                },
+                "m.relates_to": {
+                    "rel_type": "m.replace",
+                    "event_id": target_msg.event_id,
+                },
+            }
+
+            # Add formatted body if we have mentions
+            if formatted_body:
+                edit_content["format"] = "org.matrix.custom.html"
+                edit_content["formatted_body"] = f"* {formatted_body}"
+                edit_content["m.new_content"]["format"] = "org.matrix.custom.html"
+                edit_content["m.new_content"]["formatted_body"] = formatted_body
+
+            # Add mentions field if there are any
+            if mentioned_user_ids:
+                edit_content["m.mentions"] = {"user_ids": mentioned_user_ids}
+                edit_content["m.new_content"]["m.mentions"] = {
+                    "user_ids": mentioned_user_ids
+                }
+
+            try:
+                response = await client.room_send(
+                    room_id, message_type="m.room.message", content=edit_content
+                )
+
+                if _is_success_response(response):
+                    console.print(
+                        f"[green]✓ Message {handle} edited in {room_name}[/green]"
+                    )
+                    if mentioned_user_ids:
+                        console.print("[dim]Note: Mentions were processed[/dim]")
+                else:
+                    console.print(f"[red]Failed to edit message: {response}[/red]")
+            except Exception as e:
+                console.print(f"[red]Failed to edit message: {e}[/red]")
+
+    asyncio.run(_edit())
 
 
 @app.command("redact")
