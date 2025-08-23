@@ -22,6 +22,7 @@ from nio import (
     RedactedEvent,
     RoomMessageText,
 )
+from pydantic import BaseModel, Field, field_validator
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -33,19 +34,46 @@ app = typer.Typer(
 )
 console = Console()
 
+
+# =============================================================================
+# Pydantic Models for State Management
+# =============================================================================
+
+
+class ThreadIdMapping(BaseModel):
+    """Thread ID mapping state."""
+
+    counter: int = 0
+    id_to_matrix: dict[int, str] = Field(default_factory=dict)
+    matrix_to_id: dict[str, int] = Field(default_factory=dict)
+
+    @field_validator("id_to_matrix", mode="before")
+    @classmethod
+    def convert_keys_to_int(cls, v):
+        """Convert string keys to int when loading from JSON."""
+        if isinstance(v, dict):
+            return {int(k) if isinstance(k, str) else k: val for k, val in v.items()}
+        return v
+
+
+class MessageHandleMapping(BaseModel):
+    """Message handle mapping state."""
+
+    handle_counter: dict[str, int] = Field(default_factory=dict)
+    room_handles: dict[str, dict[str, str]] = Field(default_factory=dict)
+    room_handle_to_event: dict[str, dict[str, str]] = Field(default_factory=dict)
+
+
+class ServerState(BaseModel):
+    """Complete state for a server."""
+
+    thread_ids: ThreadIdMapping = Field(default_factory=ThreadIdMapping)
+    message_handles: MessageHandleMapping = Field(default_factory=MessageHandleMapping)
+
+
 # State storage configuration
 _current_server: str | None = None
-_state_cache: dict[str, dict] = {}  # server -> state data
-
-# State structure for each server:
-# {
-#   "thread_ids": {"counter": int, "id_to_matrix": {}, "matrix_to_id": {}},
-#   "message_handles": {
-#     "handle_counter": {room_id: int},
-#     "room_handles": {room_id: {event_id: handle}},
-#     "room_handle_to_event": {room_id: {handle: event_id}}
-#   }
-# }
+_state_cache: dict[str, ServerState] = {}  # server -> state data
 
 
 # =============================================================================
@@ -77,7 +105,7 @@ def _get_state_file(server: str | None = None) -> Path:
     return state_dir / f"{domain}.json"
 
 
-def _load_state(server: str | None = None) -> dict:
+def _load_state(server: str | None = None) -> ServerState:
     """Load state for a server."""
     global _state_cache  # noqa: PLW0602
 
@@ -89,25 +117,12 @@ def _load_state(server: str | None = None) -> dict:
         return _state_cache[server]
 
     state_file = _get_state_file(server)
-    state = {
-        "thread_ids": {"counter": 0, "id_to_matrix": {}, "matrix_to_id": {}},
-        "message_handles": {
-            "handle_counter": {},
-            "room_handles": {},
-            "room_handle_to_event": {},
-        },
-    }
 
     if state_file.exists():
         with state_file.open() as f:
-            loaded_state = json.load(f)
-            # Merge loaded state with defaults
-            state.update(loaded_state)
-            # Convert string keys to int for id_to_matrix
-            if "thread_ids" in state and "id_to_matrix" in state["thread_ids"]:
-                state["thread_ids"]["id_to_matrix"] = {
-                    int(k): v for k, v in state["thread_ids"]["id_to_matrix"].items()
-                }
+            state = ServerState.model_validate(json.load(f))
+    else:
+        state = ServerState()
 
     _state_cache[server] = state
     return state
@@ -122,7 +137,7 @@ def _save_state(server: str | None = None) -> None:
     state_file = _get_state_file(server)
 
     with state_file.open("w") as f:
-        json.dump(state, f, indent=2)
+        json.dump(state.model_dump(), f, indent=2)
 
 
 def _migrate_old_files() -> None:
@@ -134,13 +149,11 @@ def _migrate_old_files() -> None:
             old_data = json.load(f)
 
         state = _load_state("default")
-        state["thread_ids"] = {
-            "counter": old_data.get("counter", 0),
-            "id_to_matrix": {
-                int(k): v for k, v in old_data.get("id_to_matrix", {}).items()
-            },
-            "matrix_to_id": old_data.get("matrix_to_id", {}),
+        state.thread_ids.counter = old_data.get("counter", 0)
+        state.thread_ids.id_to_matrix = {
+            int(k): v for k, v in old_data.get("id_to_matrix", {}).items()
         }
+        state.thread_ids.matrix_to_id = old_data.get("matrix_to_id", {})
         _save_state("default")
         old_id_file.rename(old_id_file.with_suffix(".json.bak"))
 
@@ -151,11 +164,11 @@ def _migrate_old_files() -> None:
             old_data = json.load(f)
 
         state = _load_state("default")
-        state["message_handles"] = {
-            "handle_counter": old_data.get("handle_counter", {}),
-            "room_handles": old_data.get("room_handles", {}),
-            "room_handle_to_event": old_data.get("room_handle_to_event", {}),
-        }
+        state.message_handles.handle_counter = old_data.get("handle_counter", {})
+        state.message_handles.room_handles = old_data.get("room_handles", {})
+        state.message_handles.room_handle_to_event = old_data.get(
+            "room_handle_to_event", {}
+        )
         _save_state("default")
         old_handle_file.rename(old_handle_file.with_suffix(".json.bak"))
 
@@ -179,34 +192,33 @@ def _get_or_create_mapping(
     Returns the mapped ID (either numeric for threads or handle for messages).
     """
     state = _load_state()
-    data = state[category]
 
     if category == "thread_ids":
         # Thread ID logic - simple bidirectional mapping
-        if key in data["matrix_to_id"]:
-            return f"{prefix}{data['matrix_to_id'][key]}"
+        if key in state.thread_ids.matrix_to_id:
+            return f"{prefix}{state.thread_ids.matrix_to_id[key]}"
 
-        data["counter"] += 1
-        simple_id = data["counter"]
-        data["id_to_matrix"][simple_id] = key
-        data["matrix_to_id"][key] = simple_id
+        state.thread_ids.counter += 1
+        simple_id = state.thread_ids.counter
+        state.thread_ids.id_to_matrix[simple_id] = key
+        state.thread_ids.matrix_to_id[key] = simple_id
         _save_state()
         return f"{prefix}{simple_id}"
 
     if category == "message_handles" and room_id:
         # Message handle logic - per-room bidirectional mapping
-        if room_id not in data["room_handles"]:
-            data["room_handles"][room_id] = {}
-            data["room_handle_to_event"][room_id] = {}
-            data["handle_counter"][room_id] = 0
+        if room_id not in state.message_handles.room_handles:
+            state.message_handles.room_handles[room_id] = {}
+            state.message_handles.room_handle_to_event[room_id] = {}
+            state.message_handles.handle_counter[room_id] = 0
 
-        if key in data["room_handles"][room_id]:
-            return data["room_handles"][room_id][key]
+        if key in state.message_handles.room_handles[room_id]:
+            return state.message_handles.room_handles[room_id][key]
 
-        data["handle_counter"][room_id] += 1
-        handle = f"{prefix}{data['handle_counter'][room_id]}"
-        data["room_handles"][room_id][key] = handle
-        data["room_handle_to_event"][room_id][handle] = key
+        state.message_handles.handle_counter[room_id] += 1
+        handle = f"{prefix}{state.message_handles.handle_counter[room_id]}"
+        state.message_handles.room_handles[room_id][key] = handle
+        state.message_handles.room_handle_to_event[room_id][handle] = key
         _save_state()
         return handle
 
@@ -234,33 +246,32 @@ def _lookup_mapping(
         reverse: If True, lookup handle->event_id, else event_id->handle
     """
     state = _load_state()
-    data = state[category]
 
     if category == "thread_ids":
         if reverse:
             # Looking up simple_id -> matrix_id
             try:
                 simple_id = int(lookup_key)
-                return data["id_to_matrix"].get(simple_id)
+                return state.thread_ids.id_to_matrix.get(simple_id)
             except ValueError:
                 return None
         else:
             # Looking up matrix_id -> simple_id
             return (
-                str(data["matrix_to_id"].get(lookup_key))
-                if lookup_key in data["matrix_to_id"]
+                str(state.thread_ids.matrix_to_id.get(lookup_key))
+                if lookup_key in state.thread_ids.matrix_to_id
                 else None
             )
 
     elif category == "message_handles" and room_id:
-        if room_id not in data.get("room_handles", {}):
+        if room_id not in state.message_handles.room_handles:
             return None
 
         if reverse:
             # Looking up handle -> event_id
-            return data["room_handle_to_event"][room_id].get(lookup_key)
+            return state.message_handles.room_handle_to_event[room_id].get(lookup_key)
         # Looking up event_id -> handle
-        return data["room_handles"][room_id].get(lookup_key)
+        return state.message_handles.room_handles[room_id].get(lookup_key)
 
     return None
 
