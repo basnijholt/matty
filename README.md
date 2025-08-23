@@ -6,6 +6,12 @@
   A simple, functional Matrix chat client built with Python, Typer, and Rich. Every interaction is a single CLI command for easy automation.
 </div>
 
+[![PyPI](https://img.shields.io/pypi/v/matty.svg)](https://pypi.python.org/pypi/matty)
+[![Build Status](https://github.com/basnijholt/matty/actions/workflows/pytest.yml/badge.svg)](https://github.com/basnijholt/matty/actions/workflows/pytest.yml)
+[![CodeCov](https://codecov.io/gh/basnijholt/matty/branch/main/graph/badge.svg)](https://codecov.io/gh/basnijholt/matty)
+[![GitHub Repo stars](https://img.shields.io/github/stars/basnijholt/matty)](https://github.com/basnijholt/matty)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+
 ## Features
 
 - Fast CLI commands for quick Matrix operations
