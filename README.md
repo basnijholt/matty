@@ -66,7 +66,7 @@ MATRIX_SSL_VERIFY=true  # Set to false for test servers
 │ rooms          List all joined rooms. (alias: r)                             │
 │ messages       Show recent messages from a room. (alias: m)                  │
 │ users          Show users in a room. (alias: u)                              │
-│ send           Send a message to a room. (alias: s)                          │
+│ send           Send a message to a room. Supports @mentions. (alias: s)      │
 │ threads        List all threads in a room. (alias: t)                        │
 │ thread         Show all messages in a specific thread. (alias: th)           │
 │ reply          Reply to a specific message using its handle. (alias: re)     │
@@ -254,12 +254,13 @@ Send messages to rooms:
 
  Usage: matty send [OPTIONS] [ROOM] [MESSAGE]
 
- Send a message to a room. (alias: s)
+ Send a message to a room. Supports @mentions. (alias: s)
 
 
 ╭─ Arguments ──────────────────────────────────────────────────────────────────╮
 │   room         [ROOM]     Room ID or name [default: None]                    │
-│   message      [MESSAGE]  Message to send [default: None]                    │
+│   message      [MESSAGE]  Message to send (use @username for mentions)       │
+│                           [default: None]                                    │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
 │ --username  -u      TEXT  [default: None]                                    │
