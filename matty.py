@@ -5,7 +5,6 @@ import asyncio
 import json
 import os
 import re
-from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -33,7 +32,6 @@ app = typer.Typer(
     context_settings={"help_option_names": ["-h", "--help"]},  # Add -h short option
 )
 console = Console()
-
 
 # =============================================================================
 # Pydantic Models for State Management
@@ -391,23 +389,6 @@ def _build_edit_content(
 
 
 # =============================================================================
-# CLI Helper Functions
-# =============================================================================
-
-
-def _validate_required_args(ctx: typer.Context, **kwargs) -> None:
-    """Validate that required arguments are not None. Show help and exit if any are missing.
-
-    Args:
-        ctx: Typer context for showing help
-        **kwargs: Named arguments to check (name=value pairs)
-    """
-    if any(v is None for v in kwargs.values()):
-        console.print(ctx.get_help())
-        raise typer.Exit(1)
-
-
-# =============================================================================
 # Data Models (using dataclasses instead of Pydantic for simplicity)
 # =============================================================================
 
@@ -459,6 +440,28 @@ class OutputFormat(str, Enum):
     simple = "simple"
     json = "json"
 
+
+# =============================================================================
+# CLI Helper Functions
+# =============================================================================
+
+
+def _validate_required_args(ctx: typer.Context, **kwargs) -> None:
+    """Validate that required arguments are not None. Show help and exit if any are missing.
+
+    Args:
+        ctx: Typer context for showing help
+        **kwargs: Named arguments to check (name=value pairs)
+    """
+    if any(v is None for v in kwargs.values()):
+        console.print(ctx.get_help())
+        raise typer.Exit(1)
+
+
+_USERNAME_OPT: str | None = typer.Option(None, "--username", "-u")
+_PASSWORD_OPT: str | None = typer.Option(None, "--password", "-p")
+_OUTPUT_FORMAT_OPT: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f")
+_ROOM_OPT: str = typer.Argument(None, help="Room ID or name")
 
 # =============================================================================
 # Private Helper Functions
@@ -1230,31 +1233,6 @@ async def _with_client_in_room(
         yield client, room_id, room_name
 
 
-async def _run_with_room(
-    room: str,
-    action: Callable,
-    username: str | None = None,
-    password: str | None = None,
-    sync: bool = False,
-):
-    """Run an action with a client connected to a specific room.
-
-    Args:
-        room: Room ID or name
-        action: Async function to run with (client, room_id, room_name) arguments
-        username: Optional username override
-        password: Optional password override
-        sync: Whether to sync client before finding room
-    """
-    async with _with_client_in_room(room, username, password, sync) as (
-        client,
-        room_id,
-        room_name,
-    ):
-        if client is not None:
-            await action(client, room_id, room_name)
-
-
 # =============================================================================
 # CLI Commands
 # =============================================================================
@@ -1263,9 +1241,9 @@ async def _run_with_room(
 @app.command("rooms")
 @app.command("r", hidden=True)
 def rooms(  # pragma: no cover
-    username: str | None = typer.Option(None, "--username", "-u"),
-    password: str | None = typer.Option(None, "--password", "-p"),
-    format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
+    username: str | None = _USERNAME_OPT,
+    password: str | None = _PASSWORD_OPT,
+    format: OutputFormat = _OUTPUT_FORMAT_OPT,
 ):
     """List all joined rooms. (alias: r)"""
     asyncio.run(_execute_rooms_command(username, password, format))
@@ -1275,11 +1253,11 @@ def rooms(  # pragma: no cover
 @app.command("m", hidden=True)
 def messages(  # pragma: no cover
     ctx: typer.Context,
-    room: str = typer.Argument(None, help="Room ID or name"),
+    room: str = _ROOM_OPT,
     limit: int = typer.Option(20, "--limit", "-l"),
-    username: str | None = typer.Option(None, "--username", "-u"),
-    password: str | None = typer.Option(None, "--password", "-p"),
-    format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
+    username: str | None = _USERNAME_OPT,
+    password: str | None = _PASSWORD_OPT,
+    format: OutputFormat = _OUTPUT_FORMAT_OPT,
 ):
     """Show recent messages from a room. (alias: m)"""
     _validate_required_args(ctx, room=room)
@@ -1290,10 +1268,10 @@ def messages(  # pragma: no cover
 @app.command("u", hidden=True)
 def users(  # pragma: no cover
     ctx: typer.Context,
-    room: str = typer.Argument(None, help="Room ID or name"),
-    username: str | None = typer.Option(None, "--username", "-u"),
-    password: str | None = typer.Option(None, "--password", "-p"),
-    format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
+    room: str = _ROOM_OPT,
+    username: str | None = _USERNAME_OPT,
+    password: str | None = _PASSWORD_OPT,
+    format: OutputFormat = _OUTPUT_FORMAT_OPT,
 ):
     """Show users in a room. (alias: u)"""
     _validate_required_args(ctx, room=room)
@@ -1304,10 +1282,10 @@ def users(  # pragma: no cover
 @app.command("s", hidden=True)
 def send(  # pragma: no cover
     ctx: typer.Context,
-    room: str = typer.Argument(None, help="Room ID or name"),
+    room: str = _ROOM_OPT,
     message: str = typer.Argument(None, help="Message to send (use @username for mentions)"),
-    username: str | None = typer.Option(None, "--username", "-u"),
-    password: str | None = typer.Option(None, "--password", "-p"),
+    username: str | None = _USERNAME_OPT,
+    password: str | None = _PASSWORD_OPT,
 ):
     """Send a message to a room. Supports @mentions. (alias: s)"""
     _validate_required_args(ctx, room=room, message=message)
@@ -1318,11 +1296,11 @@ def send(  # pragma: no cover
 @app.command("t", hidden=True)
 def threads(  # pragma: no cover
     ctx: typer.Context,
-    room: str = typer.Argument(None, help="Room ID or name"),
+    room: str = _ROOM_OPT,
     limit: int = typer.Option(50, "--limit", "-l", help="Number of messages to check"),
-    username: str | None = typer.Option(None, "--username", "-u"),
-    password: str | None = typer.Option(None, "--password", "-p"),
-    format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
+    username: str | None = _USERNAME_OPT,
+    password: str | None = _PASSWORD_OPT,
+    format: OutputFormat = _OUTPUT_FORMAT_OPT,
 ):
     """List all threads in a room. (alias: t)"""
     _validate_required_args(ctx, room=room)
@@ -1388,12 +1366,12 @@ def threads(  # pragma: no cover
 @app.command("th", hidden=True)
 def thread(  # pragma: no cover
     ctx: typer.Context,
-    room: str = typer.Argument(None, help="Room ID or name"),
+    room: str = _ROOM_OPT,
     thread_id: str = typer.Argument(None, help="Thread ID (t1, t2, etc.) or full Matrix ID"),
     limit: int = typer.Option(50, "--limit", "-l", help="Number of messages to fetch"),
-    username: str | None = typer.Option(None, "--username", "-u"),
-    password: str | None = typer.Option(None, "--password", "-p"),
-    format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
+    username: str | None = _USERNAME_OPT,
+    password: str | None = _PASSWORD_OPT,
+    format: OutputFormat = _OUTPUT_FORMAT_OPT,
 ):
     """Show all messages in a specific thread. (alias: th)"""
     _validate_required_args(ctx, room=room, thread_id=thread_id)
@@ -1468,11 +1446,11 @@ def thread(  # pragma: no cover
 @app.command("re", hidden=True)
 def reply(  # pragma: no cover
     ctx: typer.Context,
-    room: str = typer.Argument(None, help="Room ID or name"),
+    room: str = _ROOM_OPT,
     handle: str = typer.Argument(None, help="Message handle (m1, m2, etc.) to reply to"),
     message: str = typer.Argument(None, help="Reply message"),
-    username: str | None = typer.Option(None, "--username", "-u"),
-    password: str | None = typer.Option(None, "--password", "-p"),
+    username: str | None = _USERNAME_OPT,
+    password: str | None = _PASSWORD_OPT,
 ):
     """Reply to a specific message using its handle. (alias: re)"""
     _validate_required_args(ctx, room=room, handle=handle, message=message)
@@ -1506,11 +1484,11 @@ def reply(  # pragma: no cover
 @app.command("ts", hidden=True)
 def thread_start(  # pragma: no cover
     ctx: typer.Context,
-    room: str = typer.Argument(None, help="Room ID or name"),
+    room: str = _ROOM_OPT,
     handle: str = typer.Argument(None, help="Message handle (m1, m2, etc.) to start thread from"),
     message: str = typer.Argument(None, help="First message in the thread"),
-    username: str | None = typer.Option(None, "--username", "-u"),
-    password: str | None = typer.Option(None, "--password", "-p"),
+    username: str | None = _USERNAME_OPT,
+    password: str | None = _PASSWORD_OPT,
 ):
     """Start a new thread from a message using its handle. (alias: ts)"""
     _validate_required_args(ctx, room=room, handle=handle, message=message)
@@ -1545,11 +1523,11 @@ def thread_start(  # pragma: no cover
 @app.command("tr", hidden=True)
 def thread_reply(  # pragma: no cover
     ctx: typer.Context,
-    room: str = typer.Argument(None, help="Room ID or name"),
+    room: str = _ROOM_OPT,
     thread_id: str = typer.Argument(None, help="Thread ID (t1, t2, etc.) or full Matrix ID"),
     message: str = typer.Argument(None, help="Reply message"),
-    username: str | None = typer.Option(None, "--username", "-u"),
-    password: str | None = typer.Option(None, "--password", "-p"),
+    username: str | None = _USERNAME_OPT,
+    password: str | None = _PASSWORD_OPT,
 ):
     """Reply within an existing thread. (alias: tr)"""
     _validate_required_args(ctx, room=room, thread_id=thread_id, message=message)
@@ -1582,11 +1560,11 @@ def thread_reply(  # pragma: no cover
 @app.command("rx", hidden=True)
 def react(  # pragma: no cover
     ctx: typer.Context,
-    room: str = typer.Argument(None, help="Room ID or name"),
+    room: str = _ROOM_OPT,
     handle: str = typer.Argument(None, help="Message handle (m1, m2, etc.) to react to"),
     emoji: str = typer.Argument(None, help="Emoji reaction (e.g., 👍, ❤️, 😄)"),
-    username: str | None = typer.Option(None, "--username", "-u"),
-    password: str | None = typer.Option(None, "--password", "-p"),
+    username: str | None = _USERNAME_OPT,
+    password: str | None = _PASSWORD_OPT,
 ):
     """Add a reaction to a message using its handle. (alias: rx)"""
     _validate_required_args(ctx, room=room, handle=handle, emoji=emoji)
@@ -1624,11 +1602,11 @@ def react(  # pragma: no cover
 @app.command("e", hidden=True)
 def edit(  # pragma: no cover
     ctx: typer.Context,
-    room: str = typer.Argument(None, help="Room ID or name"),
+    room: str = _ROOM_OPT,
     handle: str = typer.Argument(None, help="Message handle (m1, m2, etc.) to edit"),
     new_content: str = typer.Argument(None, help="New message content"),
-    username: str | None = typer.Option(None, "--username", "-u"),
-    password: str | None = typer.Option(None, "--password", "-p"),
+    username: str | None = _USERNAME_OPT,
+    password: str | None = _PASSWORD_OPT,
 ):
     """Edit a message using its handle. (alias: e)"""
     _validate_required_args(ctx, room=room, handle=handle, new_content=new_content)
@@ -1688,11 +1666,11 @@ def edit(  # pragma: no cover
 @app.command("del", hidden=True)
 def redact(  # pragma: no cover
     ctx: typer.Context,
-    room: str = typer.Argument(None, help="Room ID or name"),
+    room: str = _ROOM_OPT,
     handle: str = typer.Argument(None, help="Message handle (m1, m2, etc.) to redact/delete"),
     reason: str = typer.Option(None, "--reason", "-r", help="Reason for redaction"),
-    username: str | None = typer.Option(None, "--username", "-u"),
-    password: str | None = typer.Option(None, "--password", "-p"),
+    username: str | None = _USERNAME_OPT,
+    password: str | None = _PASSWORD_OPT,
 ):
     """Delete/redact a message using its handle. (alias: del)"""
     _validate_required_args(ctx, room=room, handle=handle)
@@ -1736,11 +1714,11 @@ def redact(  # pragma: no cover
 @app.command("rxs", hidden=True)
 def reactions(  # pragma: no cover
     ctx: typer.Context,
-    room: str = typer.Argument(None, help="Room ID or name"),
+    room: str = _ROOM_OPT,
     handle: str = typer.Argument(None, help="Message handle (m1, m2, etc.) to show reactions for"),
-    username: str | None = typer.Option(None, "--username", "-u"),
-    password: str | None = typer.Option(None, "--password", "-p"),
-    format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f"),
+    username: str | None = _USERNAME_OPT,
+    password: str | None = _PASSWORD_OPT,
+    format: OutputFormat = _OUTPUT_FORMAT_OPT,
 ):
     """Show detailed reactions for a specific message. (alias: rxs)"""
     _validate_required_args(ctx, room=room, handle=handle)
