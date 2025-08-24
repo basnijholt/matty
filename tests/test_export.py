@@ -1,5 +1,6 @@
 """Fixed tests for matty module to increase code coverage."""
 
+from dataclasses import asdict
 from datetime import UTC, datetime
 
 import pytest
@@ -18,8 +19,6 @@ class TestNewFeatures:
     @pytest.mark.asyncio
     async def test_export_messages_markdown(self):
         """Test exporting messages to markdown format."""
-
-        from matty import _message_to_dict
 
         # Create mock messages
         msg1 = Message(
@@ -74,7 +73,7 @@ class TestNewFeatures:
             "room": room_name,
             "exported_at": datetime.now(UTC).isoformat(),
             "message_count": len(messages),
-            "messages": [_message_to_dict(msg) for msg in messages],
+            "messages": [asdict(msg) for msg in messages],
         }
 
         assert export_data["message_count"] == 2

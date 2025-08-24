@@ -468,11 +468,6 @@ _ROOM_OPT: str = typer.Argument(None, help="Room ID or name")
 # =============================================================================
 
 
-def _message_to_dict(msg: Message) -> dict:
-    """Convert a Message to a dictionary."""
-    return asdict(msg)
-
-
 def _load_config() -> Config:
     """Load configuration from environment variables."""
 
@@ -1824,7 +1819,7 @@ def search(
             messages = await _get_messages(client, room_id, limit)
 
             # Filter messages based on search query
-            matched_messages = []
+            matched_messages: list[Message] = []
             for msg in messages:
                 if regex:
                     flags = 0 if case_sensitive else re.IGNORECASE
@@ -1880,7 +1875,7 @@ def search(
                             "room": room_name,
                             "query": query,
                             "matches": len(matched_messages),
-                            "messages": [_message_to_dict(msg) for msg in matched_messages],
+                            "messages": [asdict(msg) for msg in matched_messages],
                         },
                         indent=2,
                         default=str,
@@ -1999,11 +1994,11 @@ def export(
                     "room": room_name,
                     "exported_at": datetime.now(UTC).isoformat(),
                     "message_count": len(messages),
-                    "messages": [_message_to_dict(msg) for msg in messages],
+                    "messages": [asdict(msg) for msg in messages],
                 }
                 if include_threads and thread_messages:
                     export_data["threads"] = {
-                        thread_id: [_message_to_dict(msg) for msg in msgs]
+                        thread_id: [asdict(msg) for msg in msgs]
                         for thread_id, msgs in thread_messages.items()
                     }
                 output_path.write_text(json.dumps(export_data, indent=2, default=str))
