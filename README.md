@@ -328,6 +328,8 @@ Send messages to rooms:
 │                           [default: None]                                    │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --stdin                   Read message from stdin                            │
+│ --file      -f      PATH  Read message from file [default: None]             │
 │ --username  -u      TEXT  Matrix username (overrides MATRIX_USERNAME env     │
 │                           var)                                               │
 │                           [default: None]                                    │
