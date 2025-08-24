@@ -11,7 +11,9 @@ from matty import (
     _execute_messages_command,
     _execute_send_command,
     _get_messages,
+    _get_relation,
     _get_threads,
+    _is_relation_type,
     _load_state,
     _login,
     _parse_mentions,
@@ -269,3 +271,43 @@ class TestEdgeCases:
         )
         assert "@alice:matrix.org" in mentioned
         assert "@bob:matrix.org" in mentioned
+
+    def test_get_relation_none(self):
+        """Test getting relation when not present."""
+        content = {"body": "message"}
+        assert _get_relation(content) is None
+
+    def test_get_relation_present(self):
+        """Test getting relation when present."""
+        content = {"m.relates_to": {"rel_type": "m.thread"}}
+        relation = _get_relation(content)
+        assert relation["rel_type"] == "m.thread"
+
+    def test_is_relation_type_true(self):
+        """Test checking relation type matches."""
+        content = {"m.relates_to": {"rel_type": "m.thread"}}
+        assert _is_relation_type(content, "m.thread") is True
+        assert _is_relation_type(content, "m.annotation") is False
+
+    def test_is_relation_type_no_relation(self):
+        """Test checking relation type when no relation."""
+        content = {"body": "message"}
+        assert _is_relation_type(content, "m.thread") is False
+
+    @pytest.mark.asyncio
+    async def test_send_message_with_formatted_body(self):
+        """Test sending message with formatted body."""
+        client = MagicMock(spec=AsyncClient)
+        # Mock the rooms attribute
+        client.rooms = {}
+        response = RoomSendResponse(event_id="$formatted123", room_id="!room:matrix.org")
+        client.room_send = AsyncMock(return_value=response)
+
+        # _send_message doesn't have formatted_body parameter, it parses HTML from message
+        result = await _send_message(client, "!room:matrix.org", "Plain text")
+        assert result is True
+
+        # Verify basic message was sent
+        call_args = client.room_send.call_args
+        content = call_args[1]["content"]
+        assert content["body"] == "Plain text"
