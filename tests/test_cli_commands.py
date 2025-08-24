@@ -306,6 +306,25 @@ Multi-line content preserved correctly."""
             assert result.exit_code == 1
             assert "File not found" in result.output
 
+    def test_cli_send_with_no_mentions(self):
+        """Test CLI send command with --no-mentions flag."""
+        test_message = "@user should not be parsed as mention in @config:file.yaml"
+
+        with patch("matty._load_config") as mock_load:
+            mock_load.return_value = Config("https://matrix.org", "user", "pass")
+            with patch("matty._execute_send_command") as mock_exec:
+                mock_exec.return_value = None
+                with patch("asyncio.run"):
+                    result = runner.invoke(
+                        app, ["send", "Test Room", test_message, "--no-mentions"]
+                    )
+                    assert result.exit_code == 0
+                    # Verify the no_mentions flag was passed
+                    mock_exec.assert_called_once()
+                    call_args = mock_exec.call_args[0]
+                    assert call_args[1] == test_message  # Second argument is the message
+                    assert call_args[4] is True  # Fifth argument is no_mentions
+
     def test_cli_users_command(self):
         """Test CLI users command."""
         with patch("matty._load_config") as mock_load:
