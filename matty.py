@@ -531,9 +531,25 @@ async def _get_rooms(client: AsyncClient) -> list[Room]:
 
 
 async def _find_room(client: AsyncClient, room_query: str) -> tuple[str, str] | None:
-    """Find room by ID or name. Returns (room_id, room_name) or None."""
-    rooms = await _get_rooms(client)
+    """Find room by ID, alias, or name. Returns (room_id, room_name) or None."""
+    # First, check if it's a room alias (starts with #)
+    if room_query.startswith("#"):
+        try:
+            response = await client.room_resolve_alias(room_query)
+            if _is_success_response(response):
+                room_id = response.room_id
+                # Now get the room name from our joined rooms
+                rooms = await _get_rooms(client)
+                for room in rooms:
+                    if room.room_id == room_id:
+                        return room.room_id, room.name
+                # If we resolved the alias but aren't in the room, return the ID with alias as name
+                return room_id, room_query
+        except Exception:
+            pass  # Fall through to check by name
 
+    # Check by room ID or display name
+    rooms = await _get_rooms(client)
     for room in rooms:
         if room_query == room.room_id or room_query.lower() == room.name.lower():
             return room.room_id, room.name

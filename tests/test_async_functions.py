@@ -124,6 +124,72 @@ class TestAsyncFunctions:
         assert result is None
 
     @pytest.mark.asyncio
+    async def test_find_room_by_alias(self):
+        """Test finding a room by alias."""
+        client = MagicMock(spec=AsyncClient)
+
+        # Mock room_resolve_alias response
+        mock_alias_response = MagicMock()
+        mock_alias_response.room_id = "!room1:matrix.org"
+        client.room_resolve_alias = AsyncMock(return_value=mock_alias_response)
+
+        # Mock the room
+        room = MagicMock(spec=MatrixRoom)
+        room.room_id = "!room1:matrix.org"
+        room.display_name = "Admin Room"
+        room.users = {"@admin:matrix.org": None}
+        room.topic = None
+
+        client.rooms = {"!room1:matrix.org": room}
+
+        # Test finding by alias
+        result = await _find_room(client, "#admins:matrix.org")
+        assert result == ("!room1:matrix.org", "Admin Room")
+        client.room_resolve_alias.assert_called_once_with("#admins:matrix.org")
+
+    @pytest.mark.asyncio
+    async def test_find_room_by_alias_not_joined(self):
+        """Test finding a room by alias when not in the room."""
+        client = MagicMock(spec=AsyncClient)
+
+        # Mock room_resolve_alias response
+        mock_alias_response = MagicMock()
+        mock_alias_response.room_id = "!room2:matrix.org"
+        client.room_resolve_alias = AsyncMock(return_value=mock_alias_response)
+
+        # Room is not in our joined rooms
+        client.rooms = {}
+
+        # Test finding by alias - should return the resolved ID and the alias as name
+        result = await _find_room(client, "#other:matrix.org")
+        assert result == ("!room2:matrix.org", "#other:matrix.org")
+        client.room_resolve_alias.assert_called_once_with("#other:matrix.org")
+
+    @pytest.mark.asyncio
+    async def test_find_room_by_alias_error(self):
+        """Test finding a room by alias when resolution fails."""
+        from nio import ErrorResponse
+
+        client = MagicMock(spec=AsyncClient)
+
+        # Mock room_resolve_alias to return an error
+        client.room_resolve_alias = AsyncMock(return_value=ErrorResponse("Not found"))
+
+        # Mock a room with a similar name to fall back to
+        room = MagicMock(spec=MatrixRoom)
+        room.room_id = "!room1:matrix.org"
+        room.display_name = "#admins:matrix.org"  # Display name matches the alias
+        room.users = {"@admin:matrix.org": None}
+        room.topic = None
+
+        client.rooms = {"!room1:matrix.org": room}
+
+        # Test finding by alias - should fall back to name search
+        result = await _find_room(client, "#admins:matrix.org")
+        assert result == ("!room1:matrix.org", "#admins:matrix.org")
+        client.room_resolve_alias.assert_called_once_with("#admins:matrix.org")
+
+    @pytest.mark.asyncio
     async def test_get_messages(self):
         """Test getting messages from a room."""
         from nio import RoomMessageText
