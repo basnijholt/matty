@@ -328,15 +328,16 @@ Send messages to rooms:
 │                           [default: None]                                    │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --stdin                   Read message from stdin                            │
-│ --file      -f      PATH  Read message from file [default: None]             │
-│ --username  -u      TEXT  Matrix username (overrides MATRIX_USERNAME env     │
-│                           var)                                               │
-│                           [default: None]                                    │
-│ --password  -p      TEXT  Matrix password (overrides MATRIX_PASSWORD env     │
-│                           var)                                               │
-│                           [default: None]                                    │
-│ --help      -h            Show this message and exit.                        │
+│ --stdin                      Read message from stdin                         │
+│ --file         -f      PATH  Read message from file [default: None]          │
+│ --no-mentions                Don't parse @mentions in messages               │
+│ --username     -u      TEXT  Matrix username (overrides MATRIX_USERNAME env  │
+│                              var)                                            │
+│                              [default: None]                                 │
+│ --password     -p      TEXT  Matrix password (overrides MATRIX_PASSWORD env  │
+│                              var)                                            │
+│                              [default: None]                                 │
+│ --help         -h            Show this message and exit.                     │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
 ```
@@ -368,13 +369,14 @@ Reply to messages:
 │   message      [MESSAGE]  Reply message [default: None]                      │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --username  -u      TEXT  Matrix username (overrides MATRIX_USERNAME env     │
-│                           var)                                               │
-│                           [default: None]                                    │
-│ --password  -p      TEXT  Matrix password (overrides MATRIX_PASSWORD env     │
-│                           var)                                               │
-│                           [default: None]                                    │
-│ --help      -h            Show this message and exit.                        │
+│ --no-mentions                Don't parse @mentions in messages               │
+│ --username     -u      TEXT  Matrix username (overrides MATRIX_USERNAME env  │
+│                              var)                                            │
+│                              [default: None]                                 │
+│ --password     -p      TEXT  Matrix password (overrides MATRIX_PASSWORD env  │
+│                              var)                                            │
+│                              [default: None]                                 │
+│ --help         -h            Show this message and exit.                     │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
 ```
@@ -406,13 +408,14 @@ Start a thread from a message:
 │   message      [MESSAGE]  First message in the thread [default: None]        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --username  -u      TEXT  Matrix username (overrides MATRIX_USERNAME env     │
-│                           var)                                               │
-│                           [default: None]                                    │
-│ --password  -p      TEXT  Matrix password (overrides MATRIX_PASSWORD env     │
-│                           var)                                               │
-│                           [default: None]                                    │
-│ --help      -h            Show this message and exit.                        │
+│ --no-mentions                Don't parse @mentions in messages               │
+│ --username     -u      TEXT  Matrix username (overrides MATRIX_USERNAME env  │
+│                              var)                                            │
+│                              [default: None]                                 │
+│ --password     -p      TEXT  Matrix password (overrides MATRIX_PASSWORD env  │
+│                              var)                                            │
+│                              [default: None]                                 │
+│ --help         -h            Show this message and exit.                     │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
 ```
@@ -444,13 +447,14 @@ Reply in a thread:
 │   message        [MESSAGE]    Reply message [default: None]                  │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --username  -u      TEXT  Matrix username (overrides MATRIX_USERNAME env     │
-│                           var)                                               │
-│                           [default: None]                                    │
-│ --password  -p      TEXT  Matrix password (overrides MATRIX_PASSWORD env     │
-│                           var)                                               │
-│                           [default: None]                                    │
-│ --help      -h            Show this message and exit.                        │
+│ --no-mentions                Don't parse @mentions in messages               │
+│ --username     -u      TEXT  Matrix username (overrides MATRIX_USERNAME env  │
+│                              var)                                            │
+│                              [default: None]                                 │
+│ --password     -p      TEXT  Matrix password (overrides MATRIX_PASSWORD env  │
+│                              var)                                            │
+│                              [default: None]                                 │
+│ --help         -h            Show this message and exit.                     │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
 ```
