@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 import re
+import sys
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -1285,10 +1286,21 @@ def send(  # pragma: no cover
     ctx: typer.Context,
     room: str = _ROOM_OPT,
     message: str = typer.Argument(None, help="Message to send (use @username for mentions)"),
+    stdin: bool = typer.Option(False, "--stdin", help="Read message from stdin"),
+    file: Path | None = typer.Option(None, "--file", "-f", help="Read message from file"),
     username: str | None = _USERNAME_OPT,
     password: str | None = _PASSWORD_OPT,
 ):
     """Send a message to a room. Supports @mentions. (alias: s)"""
+    # Handle different input methods
+    if stdin:
+        message = sys.stdin.read()
+    elif file:
+        if not file.exists():
+            console.print(f"[red]File not found: {file}[/red]")
+            raise typer.Exit(1)
+        message = file.read_text()
+
     _validate_required_args(ctx, room=room, message=message)
     asyncio.run(_execute_send_command(room, message, username, password))
 

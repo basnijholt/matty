@@ -1,5 +1,7 @@
 """Additional tests to improve coverage to >90%."""
 
+import tempfile
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -243,6 +245,66 @@ class TestCLICommands:
                 with patch("asyncio.run"):
                     result = runner.invoke(app, ["send", "Test Room", "Hello"])
                     assert result.exit_code == 0
+
+    def test_cli_send_with_stdin(self):
+        """Test CLI send command with stdin input."""
+        test_message = "Hello from stdin!\nMultiple lines\nWith special chars: @#$%"
+
+        with patch("matty._load_config") as mock_load:
+            mock_load.return_value = Config("https://matrix.org", "user", "pass")
+            with patch("matty._execute_send_command") as mock_exec:
+                mock_exec.return_value = None
+                with patch("asyncio.run"):
+                    result = runner.invoke(
+                        app, ["send", "Test Room", "--stdin"], input=test_message
+                    )
+                    assert result.exit_code == 0
+                    # Verify the message was passed correctly
+                    mock_exec.assert_called_once()
+                    call_args = mock_exec.call_args[0]
+                    assert call_args[1] == test_message  # Second argument is the message
+
+    def test_cli_send_with_file(self):
+        """Test CLI send command with file input."""
+        test_message = """Test YAML configuration:
+```yaml
+key: value
+nested:
+  item1: test
+  item2: 123
+list:
+  - first
+  - second
+special_chars: "Test with @#$% and underscores_here"
+```
+Multi-line content preserved correctly."""
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as tmp:
+            tmp.write(test_message)
+            tmp_path = tmp.name
+
+        try:
+            with patch("matty._load_config") as mock_load:
+                mock_load.return_value = Config("https://matrix.org", "user", "pass")
+                with patch("matty._execute_send_command") as mock_exec:
+                    mock_exec.return_value = None
+                    with patch("asyncio.run"):
+                        result = runner.invoke(app, ["send", "Test Room", "--file", tmp_path])
+                        assert result.exit_code == 0
+                        # Verify the message was passed correctly
+                        mock_exec.assert_called_once()
+                        call_args = mock_exec.call_args[0]
+                        assert call_args[1] == test_message  # Second argument is the message
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
+
+    def test_cli_send_with_nonexistent_file(self):
+        """Test CLI send command with non-existent file."""
+        with patch("matty._load_config") as mock_load:
+            mock_load.return_value = Config("https://matrix.org", "user", "pass")
+            result = runner.invoke(app, ["send", "Test Room", "--file", "/nonexistent/file.txt"])
+            assert result.exit_code == 1
+            assert "File not found" in result.output
 
     def test_cli_users_command(self):
         """Test CLI users command."""
