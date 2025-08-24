@@ -80,3 +80,37 @@ class TestErrorHandling:
         # Exact match (case insensitive) should work
         result = await _find_room(client, "test room")
         assert result == ("!room:matrix.org", "Test Room")
+
+    @pytest.mark.asyncio
+    async def test_find_room_exact_match(self):
+        """Test exact room name matching (case-insensitive)."""
+        client = MagicMock(spec=AsyncClient)
+
+        room = MagicMock(spec=MatrixRoom)
+        room.room_id = "!room:matrix.org"
+        room.display_name = "Test Room"
+        room.users = {"@user1:matrix.org": None}
+        room.topic = None
+
+        client.rooms = {"!room:matrix.org": room}
+
+        # Test exact match (case insensitive)
+        result = await _find_room(client, "test room")
+        assert result == ("!room:matrix.org", "Test Room")
+
+        # Test partial match should NOT work
+        result = await _find_room(client, "test")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_messages_empty_room(self):
+        """Test getting messages from empty room."""
+        client = MagicMock(spec=AsyncClient)
+
+        mock_response = MagicMock()
+        mock_response.chunk = []
+
+        client.room_messages = AsyncMock(return_value=mock_response)
+
+        messages = await _get_messages(client, "!room:matrix.org", limit=10)
+        assert messages == []
