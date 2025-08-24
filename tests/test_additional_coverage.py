@@ -39,6 +39,8 @@ class TestEdgeCases:
     async def test_send_message_success(self):
         """Test successful message send."""
         client = MagicMock(spec=AsyncClient)
+        # Mock the rooms attribute
+        client.rooms = {}
         response = RoomSendResponse(event_id="$event123", room_id="!room:matrix.org")
         client.room_send = AsyncMock(return_value=response)
 
@@ -49,6 +51,8 @@ class TestEdgeCases:
     async def test_send_message_with_thread(self):
         """Test sending message in thread."""
         client = MagicMock(spec=AsyncClient)
+        # Mock the rooms attribute
+        client.rooms = {}
         response = RoomSendResponse(event_id="$event456", room_id="!room:matrix.org")
         client.room_send = AsyncMock(return_value=response)
 
@@ -67,6 +71,8 @@ class TestEdgeCases:
     async def test_send_message_with_reply(self):
         """Test sending reply message."""
         client = MagicMock(spec=AsyncClient)
+        # Mock the rooms attribute
+        client.rooms = {}
         response = RoomSendResponse(event_id="$event789", room_id="!room:matrix.org")
         client.room_send = AsyncMock(return_value=response)
 
@@ -82,38 +88,35 @@ class TestEdgeCases:
         assert "m.in_reply_to" in content["m.relates_to"]
 
     @pytest.mark.asyncio
-    async def test_send_message_with_edit(self):
-        """Test sending edit message."""
+    async def test_send_message_with_error(self):
+        """Test sending message with error."""
         client = MagicMock(spec=AsyncClient)
-        response = RoomSendResponse(event_id="$edit123", room_id="!room:matrix.org")
-        client.room_send = AsyncMock(return_value=response)
+        # Mock the rooms attribute
+        client.rooms = {}
+        # Return error response
+        client.room_send = AsyncMock(side_effect=Exception("Network error"))
 
-        result = await _send_message(
-            client, "!room:matrix.org", "Edited text", edit_id="$original456"
-        )
-        assert result is True
-
-        # Verify edit relation was included
-        call_args = client.room_send.call_args
-        content = call_args[1]["content"]
-        assert "m.relates_to" in content
-        assert content["m.relates_to"]["rel_type"] == "m.replace"
+        result = await _send_message(client, "!room:matrix.org", "Test message")
+        assert result is False
 
     @pytest.mark.asyncio
     async def test_send_message_with_mentions(self):
         """Test sending message with mentions."""
         client = MagicMock(spec=AsyncClient)
+        # Mock the rooms attribute with a room that has users
+        mock_room = MagicMock()
+        mock_room.users = {"@user:matrix.org": None, "@alice:matrix.org": None}
+        client.rooms = {"!room:matrix.org": mock_room}
         response = RoomSendResponse(event_id="$mention123", room_id="!room:matrix.org")
         client.room_send = AsyncMock(return_value=response)
 
-        result = await _send_message(
-            client, "!room:matrix.org", "Hello @user", mentioned_user_ids=["@user:matrix.org"]
-        )
+        result = await _send_message(client, "!room:matrix.org", "Hello @user")
         assert result is True
 
-        # Verify mentions were included
+        # Verify mentions were included (parsed from message text)
         call_args = client.room_send.call_args
         content = call_args[1]["content"]
+        # Message with @user should have been parsed to include mentions
         assert "m.mentions" in content
         assert "@user:matrix.org" in content["m.mentions"]["user_ids"]
 
@@ -184,21 +187,24 @@ class TestEdgeCases:
             client = MagicMock(spec=AsyncClient)
             mock_create.return_value = client
 
-            with patch("matty._login", return_value=True), patch("matty._sync_client"):
-                with patch("matty._find_room", return_value=("!room:matrix.org", "Test Room")):
-                    with patch("matty._resolve_thread_id", return_value=("$thread123", None)):
-                        with patch("matty._get_thread_messages", return_value=[]):
-                            client.close = AsyncMock()
+            with (
+                patch("matty._login", return_value=True),
+                patch("matty._sync_client"),
+                patch("matty._find_room", return_value=("!room:matrix.org", "Test Room")),
+                patch("matty._resolve_thread_id", return_value=("$thread123", None)),
+                patch("matty._get_thread_messages", return_value=[]),
+            ):
+                client.close = AsyncMock()
 
-                            # _execute_messages_command doesn't have thread parameter
-                            # Just test without thread parameter
-                            await _execute_messages_command(
-                                "Test Room",
-                                10,
-                                "user",
-                                "pass",
-                                OutputFormat.simple,
-                            )
+                # _execute_messages_command doesn't have thread parameter
+                # Just test without thread parameter
+                await _execute_messages_command(
+                    "Test Room",
+                    10,
+                    "user",
+                    "pass",
+                    OutputFormat.simple,
+                )
 
         captured = capsys.readouterr()
         assert "Test Room" in captured.out
@@ -210,12 +216,15 @@ class TestEdgeCases:
             client = MagicMock(spec=AsyncClient)
             mock_create.return_value = client
 
-            with patch("matty._login", return_value=True), patch("matty._sync_client"):
-                with patch("matty._find_room", return_value=("!room:matrix.org", "Test Room")):
-                    with patch("matty._send_message", return_value=False):
-                        client.close = AsyncMock()
+            with (
+                patch("matty._login", return_value=True),
+                patch("matty._sync_client"),
+                patch("matty._find_room", return_value=("!room:matrix.org", "Test Room")),
+                patch("matty._send_message", return_value=False),
+            ):
+                client.close = AsyncMock()
 
-                        await _execute_send_command("Test Room", "Message", "user", "pass")
+                await _execute_send_command("Test Room", "Message", "user", "pass")
 
         captured = capsys.readouterr()
         assert "Failed" in captured.out or "Error" in captured.out
