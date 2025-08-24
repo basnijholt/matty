@@ -319,11 +319,13 @@ Multi-line content preserved correctly."""
                         app, ["send", "Test Room", test_message, "--no-mentions"]
                     )
                     assert result.exit_code == 0
-                    # Verify the no_mentions flag was passed
+                    # Verify the mentions flag was passed (inverted from --no-mentions)
                     mock_exec.assert_called_once()
                     call_args = mock_exec.call_args[0]
                     assert call_args[1] == test_message  # Second argument is the message
-                    assert call_args[4] is True  # Fifth argument is no_mentions
+                    assert (
+                        call_args[4] is False
+                    )  # Fifth argument is mentions (inverted from --no-mentions)
 
     def test_cli_users_command(self):
         """Test CLI users command."""

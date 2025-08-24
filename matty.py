@@ -810,21 +810,21 @@ async def _send_message(
     message: str,
     thread_root_id: str | None = None,
     reply_to_id: str | None = None,
-    no_mentions: bool = False,
+    mentions: bool = True,
 ) -> bool:
     """Send a message to a room, optionally as a thread reply or regular reply."""
     try:
-        if no_mentions:
-            # Skip mention parsing entirely
-            body = message
-            formatted_body = None
-            mentioned_user_ids = []
-        else:
+        if mentions:
             # Get room users for mention parsing
             room_users = _get_room_users(client, room_id)
 
             # Parse mentions
             body, formatted_body, mentioned_user_ids = _parse_mentions(message, room_users)
+        else:
+            # Skip mention parsing entirely
+            body = message
+            formatted_body = None
+            mentioned_user_ids = []
 
         # Build message content using helper
         content = _build_message_content(
@@ -1151,7 +1151,7 @@ async def _execute_send_command(
     message: str,
     username: str | None = None,
     password: str | None = None,
-    no_mentions: bool = False,
+    mentions: bool = True,
 ) -> None:
     """Execute the send command."""
     config = _load_config()
@@ -1180,9 +1180,10 @@ async def _execute_send_command(
 
             room_id, room_name = room_info
 
-            if await _send_message(client, room_id, message, no_mentions=no_mentions):
+            # Invert the flag for internal use
+            if await _send_message(client, room_id, message, mentions=mentions):
                 console.print(f"[green]✓ Message sent to {room_name}[/green]")
-                if "@" in message and not no_mentions:
+                if "@" in message and mentions:
                     console.print("[dim]Note: Mentions were processed[/dim]")
             else:
                 console.print("[red]✗ Failed to send message[/red]")
@@ -1330,7 +1331,7 @@ def send(  # pragma: no cover
         message = file.read_text()
 
     _validate_required_args(ctx, room=room, message=message)
-    asyncio.run(_execute_send_command(room, message, username, password, no_mentions))
+    asyncio.run(_execute_send_command(room, message, username, password, not no_mentions))
 
 
 @app.command("threads")
@@ -1515,7 +1516,7 @@ def reply(  # pragma: no cover
 
             # Send reply
             if await _send_message(
-                client, room_id, message, reply_to_id=target_msg.event_id, no_mentions=no_mentions
+                client, room_id, message, reply_to_id=target_msg.event_id, mentions=not no_mentions
             ):
                 console.print(f"[green]✓ Reply sent to {handle} in {room_name}[/green]")
             else:
@@ -1560,7 +1561,7 @@ def thread_start(  # pragma: no cover
                 room_id,
                 message,
                 thread_root_id=target_msg.event_id,
-                no_mentions=no_mentions,
+                mentions=not no_mentions,
             ):
                 console.print(f"[green]✓ Thread started from {handle} in {room_name}[/green]")
                 console.print(f"[dim]Thread ID: {target_msg.event_id}[/dim]")
@@ -1601,7 +1602,7 @@ def thread_reply(  # pragma: no cover
 
             # Send thread reply
             if await _send_message(
-                client, room_id, message, thread_root_id=actual_thread_id, no_mentions=no_mentions
+                client, room_id, message, thread_root_id=actual_thread_id, mentions=not no_mentions
             ):
                 console.print(f"[green]✓ Reply sent to thread in {room_name}[/green]")
             else:
@@ -1686,17 +1687,18 @@ def edit(  # pragma: no cover
                 console.print(f"[red]Message {handle} has no event ID[/red]")
                 return
 
-            if no_mentions:
-                # Skip mention parsing entirely
-                body = new_content
-                formatted_body = None
-                mentioned_user_ids = []
-            else:
+            mentions = not no_mentions
+            if mentions:
                 # Get room users for mention parsing
                 room_users = _get_room_users(client, room_id)
 
                 # Parse mentions
                 body, formatted_body, mentioned_user_ids = _parse_mentions(new_content, room_users)
+            else:
+                # Skip mention parsing entirely
+                body = new_content
+                formatted_body = None
+                mentioned_user_ids = []
 
             # Build edit content using helper
             edit_content = _build_edit_content(
@@ -1713,7 +1715,7 @@ def edit(  # pragma: no cover
 
                 if _is_success_response(response):
                     console.print(f"[green]✓ Message {handle} edited in {room_name}[/green]")
-                    if mentioned_user_ids:
+                    if mentions and mentioned_user_ids:
                         console.print("[dim]Note: Mentions were processed[/dim]")
                 else:
                     console.print(f"[red]Failed to edit message: {response}[/red]")
