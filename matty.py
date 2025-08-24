@@ -1787,8 +1787,8 @@ def search(
         False, "--case-sensitive", "-c", help="Case sensitive search"
     ),
     regex: bool = typer.Option(False, "--regex", "-r", help="Use regex pattern"),
-    username: str | None = typer.Option(None, "--username", "-u"),
-    password: str | None = typer.Option(None, "--password", "-p"),
+    username: str | None = _USERNAME_OPT,
+    password: str | None = _PASSWORD_OPT,
     format: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f", help="Output format"),
 ):
     """Search for messages in a room containing specific text."""
@@ -1909,8 +1909,8 @@ def export(
     include_threads: bool = typer.Option(
         True, "--threads/--no-threads", help="Include thread messages"
     ),
-    username: str | None = typer.Option(None, "--username", "-u"),
-    password: str | None = typer.Option(None, "--password", "-p"),
+    username: str | None = _USERNAME_OPT,
+    password: str | None = _PASSWORD_OPT,
 ):
     """Export room messages to a file in various formats."""
 
@@ -2045,8 +2045,8 @@ def watch(
     room: str = typer.Argument(..., help="Room name or alias to watch"),
     interval: int = typer.Option(2, "--interval", "-i", help="Refresh interval in seconds"),
     show_reactions: bool = typer.Option(True, "--reactions/--no-reactions", help="Show reactions"),
-    username: str | None = typer.Option(None, "--username", "-u"),
-    password: str | None = typer.Option(None, "--password", "-p"),
+    username: str | None = _USERNAME_OPT,
+    password: str | None = _PASSWORD_OPT,
 ):
     """Watch a room for new messages in real-time."""
 
