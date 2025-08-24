@@ -51,7 +51,7 @@ uv run pre-commit install
 
 ## Configuration
 
-Create a `.env` file with your Matrix credentials:
+Matty uses environment variables for configuration. Create a `.env` file in your working directory with your Matrix credentials:
 
 ```bash
 MATRIX_HOMESERVER=https://matrix.org
@@ -59,6 +59,20 @@ MATRIX_USERNAME=your_username
 MATRIX_PASSWORD=your_password
 MATRIX_SSL_VERIFY=true  # Set to false for test servers
 ```
+
+### Environment Variables
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `MATRIX_HOMESERVER` | The Matrix homeserver URL to connect to | `https://matrix.org` | `https://matrix.example.com` |
+| `MATRIX_USERNAME` | Your Matrix username (without @ or :server) | None (required) | `alice` |
+| `MATRIX_PASSWORD` | Your Matrix account password | None (required) | `secretpassword` |
+| `MATRIX_SSL_VERIFY` | Whether to verify SSL certificates | `true` | `false` (for test servers) |
+
+**Notes:**
+- The username should be provided without the `@` prefix or `:server` suffix
+- Set `MATRIX_SSL_VERIFY=false` when connecting to test servers with self-signed certificates
+- Command-line options (`--username`, `--password`) override environment variables
 
 ## Usage
 
@@ -124,9 +138,14 @@ List all joined Matrix rooms:
 
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --username  -u      TEXT                [default: None]                      │
-│ --password  -p      TEXT                [default: None]                      │
-│ --format    -f      [rich|simple|json]  [default: rich]                      │
+│ --username  -u      TEXT                Matrix username (overrides           │
+│                                         MATRIX_USERNAME env var)             │
+│                                         [default: None]                      │
+│ --password  -p      TEXT                Matrix password (overrides           │
+│                                         MATRIX_PASSWORD env var)             │
+│                                         [default: None]                      │
+│ --format    -f      [rich|simple|json]  Output format (rich/simple/json)     │
+│                                         [default: rich]                      │
 │ --help      -h                          Show this message and exit.          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
@@ -157,9 +176,14 @@ Get recent messages from a room:
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
 │ --limit     -l      INTEGER             [default: 20]                        │
-│ --username  -u      TEXT                [default: None]                      │
-│ --password  -p      TEXT                [default: None]                      │
-│ --format    -f      [rich|simple|json]  [default: rich]                      │
+│ --username  -u      TEXT                Matrix username (overrides           │
+│                                         MATRIX_USERNAME env var)             │
+│                                         [default: None]                      │
+│ --password  -p      TEXT                Matrix password (overrides           │
+│                                         MATRIX_PASSWORD env var)             │
+│                                         [default: None]                      │
+│ --format    -f      [rich|simple|json]  Output format (rich/simple/json)     │
+│                                         [default: rich]                      │
 │ --help      -h                          Show this message and exit.          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
@@ -189,9 +213,14 @@ List users in a room:
 │   room      [ROOM]  Room ID or name [default: None]                          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --username  -u      TEXT                [default: None]                      │
-│ --password  -p      TEXT                [default: None]                      │
-│ --format    -f      [rich|simple|json]  [default: rich]                      │
+│ --username  -u      TEXT                Matrix username (overrides           │
+│                                         MATRIX_USERNAME env var)             │
+│                                         [default: None]                      │
+│ --password  -p      TEXT                Matrix password (overrides           │
+│                                         MATRIX_PASSWORD env var)             │
+│                                         [default: None]                      │
+│ --format    -f      [rich|simple|json]  Output format (rich/simple/json)     │
+│                                         [default: rich]                      │
 │ --help      -h                          Show this message and exit.          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
@@ -223,9 +252,14 @@ View and interact with threads:
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
 │ --limit     -l      INTEGER             Number of messages to check          │
 │                                         [default: 50]                        │
-│ --username  -u      TEXT                [default: None]                      │
-│ --password  -p      TEXT                [default: None]                      │
-│ --format    -f      [rich|simple|json]  [default: rich]                      │
+│ --username  -u      TEXT                Matrix username (overrides           │
+│                                         MATRIX_USERNAME env var)             │
+│                                         [default: None]                      │
+│ --password  -p      TEXT                Matrix password (overrides           │
+│                                         MATRIX_PASSWORD env var)             │
+│                                         [default: None]                      │
+│ --format    -f      [rich|simple|json]  Output format (rich/simple/json)     │
+│                                         [default: rich]                      │
 │ --help      -h                          Show this message and exit.          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
@@ -255,9 +289,14 @@ View and interact with threads:
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
 │ --limit     -l      INTEGER             Number of messages to fetch          │
 │                                         [default: 50]                        │
-│ --username  -u      TEXT                [default: None]                      │
-│ --password  -p      TEXT                [default: None]                      │
-│ --format    -f      [rich|simple|json]  [default: rich]                      │
+│ --username  -u      TEXT                Matrix username (overrides           │
+│                                         MATRIX_USERNAME env var)             │
+│                                         [default: None]                      │
+│ --password  -p      TEXT                Matrix password (overrides           │
+│                                         MATRIX_PASSWORD env var)             │
+│                                         [default: None]                      │
+│ --format    -f      [rich|simple|json]  Output format (rich/simple/json)     │
+│                                         [default: rich]                      │
 │ --help      -h                          Show this message and exit.          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
@@ -289,8 +328,12 @@ Send messages to rooms:
 │                           [default: None]                                    │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --username  -u      TEXT  [default: None]                                    │
-│ --password  -p      TEXT  [default: None]                                    │
+│ --username  -u      TEXT  Matrix username (overrides MATRIX_USERNAME env     │
+│                           var)                                               │
+│                           [default: None]                                    │
+│ --password  -p      TEXT  Matrix password (overrides MATRIX_PASSWORD env     │
+│                           var)                                               │
+│                           [default: None]                                    │
 │ --help      -h            Show this message and exit.                        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
@@ -323,8 +366,12 @@ Reply to messages:
 │   message      [MESSAGE]  Reply message [default: None]                      │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --username  -u      TEXT  [default: None]                                    │
-│ --password  -p      TEXT  [default: None]                                    │
+│ --username  -u      TEXT  Matrix username (overrides MATRIX_USERNAME env     │
+│                           var)                                               │
+│                           [default: None]                                    │
+│ --password  -p      TEXT  Matrix password (overrides MATRIX_PASSWORD env     │
+│                           var)                                               │
+│                           [default: None]                                    │
 │ --help      -h            Show this message and exit.                        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
@@ -357,8 +404,12 @@ Start a thread from a message:
 │   message      [MESSAGE]  First message in the thread [default: None]        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --username  -u      TEXT  [default: None]                                    │
-│ --password  -p      TEXT  [default: None]                                    │
+│ --username  -u      TEXT  Matrix username (overrides MATRIX_USERNAME env     │
+│                           var)                                               │
+│                           [default: None]                                    │
+│ --password  -p      TEXT  Matrix password (overrides MATRIX_PASSWORD env     │
+│                           var)                                               │
+│                           [default: None]                                    │
 │ --help      -h            Show this message and exit.                        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
@@ -391,8 +442,12 @@ Reply in a thread:
 │   message        [MESSAGE]    Reply message [default: None]                  │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --username  -u      TEXT  [default: None]                                    │
-│ --password  -p      TEXT  [default: None]                                    │
+│ --username  -u      TEXT  Matrix username (overrides MATRIX_USERNAME env     │
+│                           var)                                               │
+│                           [default: None]                                    │
+│ --password  -p      TEXT  Matrix password (overrides MATRIX_PASSWORD env     │
+│                           var)                                               │
+│                           [default: None]                                    │
 │ --help      -h            Show this message and exit.                        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
@@ -425,8 +480,12 @@ Add reactions to messages:
 │   emoji       [EMOJI]   Emoji reaction (e.g., 👍, ❤️, 😄) [default: None]     │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --username  -u      TEXT  [default: None]                                    │
-│ --password  -p      TEXT  [default: None]                                    │
+│ --username  -u      TEXT  Matrix username (overrides MATRIX_USERNAME env     │
+│                           var)                                               │
+│                           [default: None]                                    │
+│ --password  -p      TEXT  Matrix password (overrides MATRIX_PASSWORD env     │
+│                           var)                                               │
+│                           [default: None]                                    │
 │ --help      -h            Show this message and exit.                        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
@@ -458,9 +517,14 @@ View reactions on a message:
 │                         [default: None]                                      │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --username  -u      TEXT                [default: None]                      │
-│ --password  -p      TEXT                [default: None]                      │
-│ --format    -f      [rich|simple|json]  [default: rich]                      │
+│ --username  -u      TEXT                Matrix username (overrides           │
+│                                         MATRIX_USERNAME env var)             │
+│                                         [default: None]                      │
+│ --password  -p      TEXT                Matrix password (overrides           │
+│                                         MATRIX_PASSWORD env var)             │
+│                                         [default: None]                      │
+│ --format    -f      [rich|simple|json]  Output format (rich/simple/json)     │
+│                                         [default: rich]                      │
 │ --help      -h                          Show this message and exit.          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
@@ -493,8 +557,12 @@ Delete/redact messages:
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
 │ --reason    -r      TEXT  Reason for redaction [default: None]               │
-│ --username  -u      TEXT  [default: None]                                    │
-│ --password  -p      TEXT  [default: None]                                    │
+│ --username  -u      TEXT  Matrix username (overrides MATRIX_USERNAME env     │
+│                           var)                                               │
+│                           [default: None]                                    │
+│ --password  -p      TEXT  Matrix password (overrides MATRIX_PASSWORD env     │
+│                           var)                                               │
+│                           [default: None]                                    │
 │ --help      -h            Show this message and exit.                        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 

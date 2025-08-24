@@ -458,9 +458,15 @@ def _validate_required_args(ctx: typer.Context, **kwargs) -> None:
         raise typer.Exit(1)
 
 
-_USERNAME_OPT: str | None = typer.Option(None, "--username", "-u")
-_PASSWORD_OPT: str | None = typer.Option(None, "--password", "-p")
-_OUTPUT_FORMAT_OPT: OutputFormat = typer.Option(OutputFormat.rich, "--format", "-f")
+_USERNAME_OPT: str | None = typer.Option(
+    None, "--username", "-u", help="Matrix username (overrides MATRIX_USERNAME env var)"
+)
+_PASSWORD_OPT: str | None = typer.Option(
+    None, "--password", "-p", help="Matrix password (overrides MATRIX_PASSWORD env var)"
+)
+_OUTPUT_FORMAT_OPT: OutputFormat = typer.Option(
+    OutputFormat.rich, "--format", "-f", help="Output format (rich/simple/json)"
+)
 _ROOM_OPT: str = typer.Argument(None, help="Room ID or name")
 
 # =============================================================================
