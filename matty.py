@@ -6,7 +6,7 @@ import json
 import os
 import re
 import sys
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import Enum
@@ -23,7 +23,8 @@ from nio import (
     RoomMessageText,
 )
 from pydantic import BaseModel, Field, field_validator
-from rich.console import Console
+from rich.console import Console, Group
+from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 
@@ -591,6 +592,225 @@ def _assign_message_handles(messages: list[Message]) -> list[Message]:
     return messages
 
 
+async def _stream_messages(
+    client: AsyncClient,
+    room_id: str,
+    room_name: str,
+    format: OutputFormat,
+    timeout: int | None = None,
+) -> None:
+    """Stream messages from a room in real-time."""
+
+    # Use Live display for rich format
+    if format == OutputFormat.rich:
+        # Message buffer for Live display
+        messages = []  # List of dicts with message data
+        event_to_idx = {}  # Map event_id to index in messages list
+        handle_counter = 1
+
+        def render_messages():
+            """Render all messages for Live display."""
+            lines = [Panel(f"[bold cyan]{room_name}[/bold cyan] - Live Stream", expand=False)]
+
+            for msg in messages:
+                time_str = msg["time"]
+                handle = msg["handle"]
+                sender = msg["sender"]
+                content = msg["content"]
+
+                # Add edit indicator
+                if msg.get("edited"):
+                    content = f"{content} [dim italic](edited)[/dim italic]"
+                if msg.get("deleted"):
+                    content = f"[strike dim]{content}[/strike dim]"
+
+                line = f"[bold magenta]{handle}[/bold magenta] [dim]{time_str}[/dim] [cyan]{sender}[/cyan]: {content}"
+                lines.append(line)
+
+                # Show reactions if any
+                if msg.get("reactions"):
+                    lines.append(f"    {msg['reactions']}")
+
+            return Group(*lines)
+
+        def handle_event(room, event):
+            nonlocal handle_counter, messages, event_to_idx
+
+            if room.room_id != room_id:
+                return
+
+            if isinstance(event, RoomMessageText):
+                # Check if this is an edit
+                if hasattr(event, "source"):
+                    content = event.source.get("content", {})
+                    relates_to = content.get("m.relates_to", {})
+
+                    if relates_to.get("rel_type") == "m.replace":
+                        # This is an edit - update existing message
+                        orig_id = relates_to.get("event_id")
+                        if orig_id in event_to_idx:
+                            idx = event_to_idx[orig_id]
+                            messages[idx]["content"] = event.body
+                            messages[idx]["edited"] = True
+                            return
+
+                # New message - check if we already have it
+                if event.event_id in event_to_idx:
+                    return  # Skip duplicates
+
+                time_str = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC).strftime(
+                    "%H:%M:%S"
+                )
+                msg = {
+                    "time": time_str,
+                    "handle": f"m{handle_counter}",
+                    "sender": event.sender,
+                    "content": event.body,
+                    "event_id": event.event_id,
+                    "edited": False,
+                    "deleted": False,
+                }
+                messages.append(msg)
+                event_to_idx[event.event_id] = len(messages) - 1
+                handle_counter += 1
+
+                # Keep only last 30 messages
+                if len(messages) > 30:
+                    old = messages.pop(0)
+                    del event_to_idx[old["event_id"]]
+                    # Reindex
+                    event_to_idx = {m["event_id"]: i for i, m in enumerate(messages)}
+
+            elif isinstance(event, ReactionEvent):
+                # Add reaction to message
+                if hasattr(event, "reacts_to") and event.reacts_to in event_to_idx:
+                    idx = event_to_idx[event.reacts_to]
+                    emoji = event.key if hasattr(event, "key") else "👍"
+                    # Add emoji to reactions string
+                    current = messages[idx].get("reactions", "")
+                    if emoji not in current:  # Avoid duplicate emojis
+                        messages[idx]["reactions"] = current + emoji
+
+            elif isinstance(event, RedactedEvent):
+                # Mark message as deleted
+                if hasattr(event, "redacts") and event.redacts in event_to_idx:
+                    idx = event_to_idx[event.redacts]
+                    messages[idx]["deleted"] = True
+
+        # Load recent messages first
+        recent = await _get_messages(client, room_id, limit=20)
+        for msg in recent:
+            time_str = msg.timestamp.strftime("%H:%M:%S")
+            msg_data = {
+                "time": time_str,
+                "handle": f"m{handle_counter}",
+                "sender": msg.sender,
+                "content": msg.content,
+                "event_id": msg.event_id,
+                "edited": False,
+                "deleted": False,
+                "reactions": "",
+            }
+            # Add reactions if any
+            if msg.reactions:
+                msg_data["reactions"] = " ".join(
+                    f"{emoji}({len(users)})" for emoji, users in msg.reactions.items()
+                )
+            messages.append(msg_data)
+            if msg.event_id:
+                event_to_idx[msg.event_id] = len(messages) - 1
+            handle_counter += 1
+
+        # Register callbacks
+        client.add_event_callback(handle_event, RoomMessageText)
+        client.add_event_callback(handle_event, ReactionEvent)
+        client.add_event_callback(handle_event, RedactedEvent)
+
+        # Use Live display
+        with Live(render_messages(), console=console, refresh_per_second=4) as live:
+            live.console.print("[cyan]Streaming... Press Ctrl+C to stop[/cyan]")
+            if timeout:
+                live.console.print(f"[dim]Will stop after {timeout} seconds[/dim]")
+
+            sync_task = None
+            try:
+                # Update display task
+                async def update():
+                    while True:
+                        await asyncio.sleep(0.25)
+                        live.update(render_messages())
+
+                update_task = asyncio.create_task(update())
+
+                if timeout:
+                    sync_task = asyncio.create_task(client.sync_forever(timeout=30000))
+                    await asyncio.wait_for(sync_task, timeout=timeout)
+                else:
+                    await client.sync_forever(timeout=30000)
+
+            except TimeoutError:
+                live.console.print(f"\n[yellow]Stream timeout reached ({timeout} seconds)[/yellow]")
+            except KeyboardInterrupt:
+                live.console.print("\n[yellow]Stream interrupted[/yellow]")
+            finally:
+                update_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await update_task
+                if sync_task and not sync_task.done():
+                    sync_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await sync_task
+
+    else:
+        # Simple/JSON format - use basic streaming
+        console.print(f"[cyan]Streaming messages from {room_name}... Press Ctrl+C to stop[/cyan]")
+        if timeout:
+            console.print(f"[dim]Will stop after {timeout} seconds[/dim]")
+
+        seen_event_ids = set()
+
+        def message_callback(room, event):
+            if room.room_id != room_id:
+                return
+
+            if isinstance(event, RoomMessageText) and event.event_id not in seen_event_ids:
+                seen_event_ids.add(event.event_id)
+                time_str = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC).strftime(
+                    "%H:%M:%S"
+                )
+
+                if format == OutputFormat.simple:
+                    print(f"[{time_str}] {event.sender}: {event.body}")
+                elif format == OutputFormat.json:
+                    data = {
+                        "timestamp": time_str,
+                        "sender": event.sender,
+                        "content": event.body,
+                        "event_id": event.event_id,
+                        "room": room_name,
+                    }
+                    print(json.dumps(data))
+
+        client.add_event_callback(message_callback, RoomMessageText)
+
+        sync_task = None
+        try:
+            if timeout:
+                sync_task = asyncio.create_task(client.sync_forever(timeout=30000))
+                await asyncio.wait_for(sync_task, timeout=timeout)
+            else:
+                await client.sync_forever(timeout=30000)
+        except TimeoutError:
+            console.print(f"\n[yellow]Stream timeout reached ({timeout} seconds)[/yellow]")
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Stream interrupted by user[/yellow]")
+        finally:
+            if sync_task and not sync_task.done():
+                sync_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await sync_task
+
+
 async def _get_messages(client: AsyncClient, room_id: str, limit: int = 20) -> list[Message]:
     """Fetch messages from a room, including thread information, reactions, and edits."""
     try:
@@ -1065,6 +1285,8 @@ async def _execute_messages_command(
     username: str | None = None,
     password: str | None = None,
     format: OutputFormat = OutputFormat.rich,
+    stream: bool = False,
+    timeout: int | None = None,
 ) -> None:
     """Execute the messages command."""
     config = _load_config()
@@ -1089,14 +1311,20 @@ async def _execute_messages_command(
                 return
 
             room_id, room_name = room_info
-            messages = await _get_messages(client, room_id, limit)
 
-            if format == OutputFormat.rich:
-                _display_messages_rich(messages, room_name)
-            elif format == OutputFormat.simple:
-                _display_messages_simple(messages, room_name)
-            elif format == OutputFormat.json:
-                _display_messages_json(messages, room_name)
+            if stream:
+                # Stream mode: continuously monitor for new messages
+                await _stream_messages(client, room_id, room_name, format, timeout)
+            else:
+                # Normal mode: show recent messages and exit
+                messages = await _get_messages(client, room_id, limit)
+
+                if format == OutputFormat.rich:
+                    _display_messages_rich(messages, room_name)
+                elif format == OutputFormat.simple:
+                    _display_messages_simple(messages, room_name)
+                elif format == OutputFormat.json:
+                    _display_messages_json(messages, room_name)
     finally:
         await client.close()
 
@@ -1284,14 +1512,22 @@ def rooms(  # pragma: no cover
 def messages(  # pragma: no cover
     ctx: typer.Context,
     room: str = _ROOM_OPT,
-    limit: int = typer.Option(20, "--limit", "-l"),
+    limit: int = typer.Option(
+        20, "--limit", "-l", help="Number of messages to fetch (ignored with --stream)"
+    ),
+    stream: bool = typer.Option(
+        False, "--stream", help="Keep connection open and show new messages as they arrive"
+    ),
+    timeout: int | None = typer.Option(
+        None, "--timeout", "-t", help="Stop streaming after N seconds"
+    ),
     username: str | None = _USERNAME_OPT,
     password: str | None = _PASSWORD_OPT,
     format: OutputFormat = _OUTPUT_FORMAT_OPT,
 ):
     """Show recent messages from a room. (alias: m)"""
     _validate_required_args(ctx, room=room)
-    asyncio.run(_execute_messages_command(room, limit, username, password, format))
+    asyncio.run(_execute_messages_command(room, limit, username, password, format, stream, timeout))
 
 
 @app.command("users")
