@@ -624,7 +624,9 @@ async def _stream_messages(
                 if msg.get("deleted"):
                     content = f"[strike dim]{content}[/strike dim]"
 
-                line = f"[bold magenta]{handle}[/bold magenta] [dim]{time_str}[/dim] [cyan]{sender}[/cyan]: {content}"
+                # Add thread indicator if present
+                thread_ind = msg.get("thread_indicator", "")
+                line = f"[bold magenta]{handle}[/bold magenta] {thread_ind}[dim]{time_str}[/dim] [cyan]{sender}[/cyan]: {content}"
                 lines.append(line)
 
                 # Show reactions if any
@@ -634,7 +636,7 @@ async def _stream_messages(
             return Group(*lines)
 
         def handle_event(room, event):
-            nonlocal handle_counter, messages, event_to_idx
+            nonlocal handle_counter, messages, event_to_idx, thread_handles, thread_counter
 
             if room.room_id != room_id:
                 return
@@ -661,12 +663,48 @@ async def _stream_messages(
                 time_str = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC).strftime(
                     "%H:%M:%S"
                 )
+
+                # Check for thread relation
+                thread_root_id = None
+                thread_indicator = ""
+                thread_handle = None
+
+                if hasattr(event, "source"):
+                    content = event.source.get("content", {})
+                    relates_to = content.get("m.relates_to", {})
+                    if relates_to.get("rel_type") == "m.thread":
+                        thread_root_id = relates_to.get("event_id")
+                        # Find the thread handle if we have the root message
+                        if thread_root_id in thread_handles:
+                            thread_handle = thread_handles[thread_root_id]
+                            thread_indicator = f"[dim yellow]↳ {thread_handle}[/dim yellow] "
+                        # This is the first reply to a message, making it a thread root
+                        elif thread_root_id in event_to_idx:
+                            root_idx = event_to_idx[thread_root_id]
+                            if not messages[root_idx].get("is_thread_root"):
+                                # Mark the original message as a thread root
+                                thread_handle = f"t{thread_counter}"
+                                thread_handles[thread_root_id] = thread_handle
+                                thread_counter += 1
+                                messages[root_idx]["is_thread_root"] = True
+                                messages[root_idx]["thread_handle"] = thread_handle
+                                messages[root_idx]["thread_indicator"] = (
+                                    f"[bold yellow]🧵 {thread_handle}[/bold yellow] "
+                                )
+                                # Now this reply gets the thread indicator
+                                thread_indicator = f"[dim yellow]↳ {thread_handle}[/dim yellow] "
+
+                # Check if this message becomes a thread root (when someone replies to it)
+                # This would need to be handled when a thread reply arrives
+
                 msg = {
                     "time": time_str,
                     "handle": f"m{handle_counter}",
                     "sender": event.sender,
                     "content": event.body,
                     "event_id": event.event_id,
+                    "thread_root_id": thread_root_id,
+                    "thread_indicator": thread_indicator,
                     "edited": False,
                     "deleted": False,
                 }
@@ -699,14 +737,37 @@ async def _stream_messages(
 
         # Load recent messages first
         recent = await _get_messages(client, room_id, limit=20)
+        thread_handles = {}  # Map thread root IDs to handles
+        thread_counter = 1
+
         for msg in recent:
             time_str = msg.timestamp.strftime("%H:%M:%S")
+
+            # Determine thread indicators
+            thread_indicator = ""
+            thread_handle = None
+
+            if msg.is_thread_root:
+                # This message starts a thread
+                thread_handle = f"t{thread_counter}"
+                thread_handles[msg.event_id] = thread_handle
+                thread_indicator = f"[bold yellow]🧵 {thread_handle}[/bold yellow] "
+                thread_counter += 1
+            elif msg.thread_root_id and msg.thread_root_id in thread_handles:
+                # This is a reply in a thread
+                thread_handle = thread_handles[msg.thread_root_id]
+                thread_indicator = f"[dim yellow]↳ {thread_handle}[/dim yellow] "
+
             msg_data = {
                 "time": time_str,
                 "handle": f"m{handle_counter}",
                 "sender": msg.sender,
                 "content": msg.content,
                 "event_id": msg.event_id,
+                "thread_root_id": msg.thread_root_id,
+                "thread_handle": thread_handle,
+                "thread_indicator": thread_indicator,
+                "is_thread_root": msg.is_thread_root,
                 "edited": False,
                 "deleted": False,
                 "reactions": "",
