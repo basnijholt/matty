@@ -175,7 +175,13 @@ Get recent messages from a room:
 │   room      [ROOM]  Room ID or name [default: None]                          │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --limit     -l      INTEGER             [default: 20]                        │
+│ --limit     -l      INTEGER             Number of messages to fetch (ignored │
+│                                         with --stream)                       │
+│                                         [default: 20]                        │
+│ --stream                                Keep connection open and show new    │
+│                                         messages as they arrive              │
+│ --timeout   -t      INTEGER             Stop streaming after N seconds       │
+│                                         [default: None]                      │
 │ --username  -u      TEXT                Matrix username (overrides           │
 │                                         MATRIX_USERNAME env var)             │
 │                                         [default: None]                      │
