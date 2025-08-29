@@ -707,7 +707,7 @@ def _handle_stream_event(
 
     if isinstance(event, RoomMessageText):
         # Use common detection helpers
-        content = event.source.get("content", {}) if hasattr(event, "source") else {}
+        content = _get_event_content(event)
 
         # Check if this is an edit using common helper
         edit_target = _detect_edit_relation(content)
@@ -771,9 +771,9 @@ def _handle_stream_event(
 
     elif isinstance(event, ReactionEvent):
         # Add reaction to message
-        if hasattr(event, "reacts_to") and event.reacts_to in event_to_idx:
+        if event.reacts_to in event_to_idx:
             idx = event_to_idx[event.reacts_to]
-            emoji = event.key if hasattr(event, "key") else "👍"
+            emoji = event.key
             # Initialize reactions dict if needed
             if not messages[idx].reactions:
                 messages[idx].reactions = {}
@@ -785,7 +785,7 @@ def _handle_stream_event(
 
     elif isinstance(event, RedactedEvent):
         # Mark message as deleted
-        if hasattr(event, "redacts") and event.redacts in event_to_idx:
+        if event.redacts in event_to_idx:
             idx = event_to_idx[event.redacts]
             messages[idx].is_deleted = True
 

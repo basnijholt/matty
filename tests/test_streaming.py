@@ -79,6 +79,7 @@ class TestStreamingMessages:
         mock_event.body = "New message"
         mock_event.event_id = "$new1"
         mock_event.server_timestamp = 1000000
+        mock_event.source = {"content": {}}
 
         with patch("matty._get_messages", AsyncMock(return_value=[])):
             # Start streaming
@@ -258,6 +259,7 @@ class TestStreamingMessages:
             duplicate_event.body = "Existing message"
             duplicate_event.event_id = "$dup1"  # Same ID
             duplicate_event.server_timestamp = 1000000
+            duplicate_event.source = {"content": {}}
 
             # This should be skipped
             if message_callback:
