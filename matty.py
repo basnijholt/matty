@@ -298,6 +298,67 @@ def _is_relation_type(content: dict, rel_type: str) -> bool:
     return False
 
 
+def _detect_thread_relation(content: dict) -> tuple[str | None, bool]:
+    """Detect thread relationships in message content.
+
+    Returns:
+        tuple: (thread_root_id, is_thread_reply)
+    """
+    if _is_relation_type(content, "m.thread"):
+        relation = _get_relation(content)
+        return relation.get("event_id"), True
+    return None, False
+
+
+def _detect_edit_relation(content: dict) -> str | None:
+    """Detect edit relationships in message content.
+
+    Returns:
+        str | None: The event ID being edited, or None
+    """
+    if _is_relation_type(content, "m.replace"):
+        relation = _get_relation(content)
+        return relation.get("event_id")
+    return None
+
+
+def _format_message_line(
+    handle: str,
+    time_str: str,
+    sender: str,
+    content: str,
+    thread_indicator: str = "",
+    is_edited: bool = False,
+    is_deleted: bool = False,
+) -> str:
+    """Format a message line consistently across display modes."""
+    # Apply edit/delete formatting
+    if is_deleted:
+        content = f"[strike dim]{content}[/strike dim]"
+    elif is_edited:
+        content = f"{content} [dim italic](edited)[/dim italic]"
+
+    # Build the line with optional thread indicator
+    return f"[bold magenta]{handle}[/bold magenta] {thread_indicator}[dim]{time_str}[/dim] [cyan]{sender}[/cyan]: {content}"
+
+
+def _format_reactions_line(reactions: dict[str, list[str]]) -> str:
+    """Format reactions for display."""
+    if not reactions:
+        return ""
+    reaction_str = " ".join(f"{emoji}({len(users)})" for emoji, users in reactions.items())
+    return f"    {reaction_str}"
+
+
+def _format_thread_indicator(is_thread_root: bool, thread_handle: str | None) -> str:
+    """Format thread indicator based on message position in thread."""
+    if not thread_handle:
+        return ""
+    if is_thread_root:
+        return f"[bold yellow]🧵 {thread_handle}[/bold yellow] "
+    return f"[dim yellow]↳ {thread_handle}[/dim yellow] "
+
+
 def _extract_thread_and_reply(content: dict) -> tuple[str | None, str | None]:
     """Extract thread root ID and reply-to ID from message content.
 
@@ -428,6 +489,8 @@ class Message:
     thread_root_id: str | None = None  # ID of the root message if this is in a thread
     reply_to_id: str | None = None  # ID of message this replies to
     is_thread_root: bool = False  # True if this message started a thread
+    is_edited: bool = False  # True if this message has been edited
+    is_deleted: bool = False  # True if this message has been deleted/redacted
     reactions: dict[str, list[str]] = field(
         default_factory=dict
     )  # emoji -> list of users who reacted
@@ -603,184 +666,139 @@ async def _stream_messages(
 
     # Use Live display for rich format
     if format == OutputFormat.rich:
-        # Message buffer for Live display
-        messages = []  # List of dicts with message data
+        # Message buffer for Live display - use Message dataclass
+        messages: list[Message] = []
         event_to_idx = {}  # Map event_id to index in messages list
-        handle_counter = 1
 
         def render_messages():
             """Render all messages for Live display."""
             lines = [Panel(f"[bold cyan]{room_name}[/bold cyan] - Live Stream", expand=False)]
 
             for msg in messages:
-                time_str = msg["time"]
-                handle = msg["handle"]
-                sender = msg["sender"]
-                content = msg["content"]
+                time_str = msg.timestamp.strftime("%H:%M:%S")
 
-                # Add edit indicator
-                if msg.get("edited"):
-                    content = f"{content} [dim italic](edited)[/dim italic]"
-                if msg.get("deleted"):
-                    content = f"[strike dim]{content}[/strike dim]"
+                # Use common formatter for thread indicator
+                thread_ind = _format_thread_indicator(msg.is_thread_root, msg.thread_handle)
 
-                # Add thread indicator if present
-                thread_ind = msg.get("thread_indicator", "")
-                line = f"[bold magenta]{handle}[/bold magenta] {thread_ind}[dim]{time_str}[/dim] [cyan]{sender}[/cyan]: {content}"
+                # Use common formatter for message line
+                line = _format_message_line(
+                    msg.handle,
+                    time_str,
+                    msg.sender,
+                    msg.content,
+                    thread_indicator=thread_ind,
+                    is_edited=msg.is_edited,
+                    is_deleted=msg.is_deleted,
+                )
                 lines.append(line)
 
-                # Show reactions if any
-                if msg.get("reactions"):
-                    lines.append(f"    {msg['reactions']}")
+                # Show reactions if any using common formatter
+                if msg.reactions:
+                    reactions_line = _format_reactions_line(msg.reactions)
+                    if reactions_line:
+                        lines.append(f"    {reactions_line}")
 
             return Group(*lines)
 
         def handle_event(room, event):
-            nonlocal handle_counter, messages, event_to_idx, thread_handles, thread_counter
+            nonlocal messages, event_to_idx
 
             if room.room_id != room_id:
                 return
 
             if isinstance(event, RoomMessageText):
-                # Check if this is an edit
-                if hasattr(event, "source"):
-                    content = event.source.get("content", {})
-                    relates_to = content.get("m.relates_to", {})
+                # Use common detection helpers
+                content = event.source.get("content", {}) if hasattr(event, "source") else {}
 
-                    if relates_to.get("rel_type") == "m.replace":
-                        # This is an edit - update existing message
-                        orig_id = relates_to.get("event_id")
-                        if orig_id in event_to_idx:
-                            idx = event_to_idx[orig_id]
-                            messages[idx]["content"] = event.body
-                            messages[idx]["edited"] = True
-                            return
+                # Check if this is an edit using common helper
+                edit_target = _detect_edit_relation(content)
+                if edit_target and edit_target in event_to_idx:
+                    # This is an edit - update existing message
+                    idx = event_to_idx[edit_target]
+                    messages[idx].content = event.body
+                    messages[idx].is_edited = True
+                    return
 
                 # New message - check if we already have it
                 if event.event_id in event_to_idx:
                     return  # Skip duplicates
 
-                time_str = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC).strftime(
-                    "%H:%M:%S"
+                # Check for thread relation using common helper
+                thread_root_id, is_reply = _detect_thread_relation(content)
+
+                # Create Message object
+                msg = Message(
+                    event_id=event.event_id,
+                    room_id=room_id,
+                    sender=event.sender,
+                    content=event.body,
+                    timestamp=datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC),
+                    thread_root_id=thread_root_id,
+                    is_thread_root=False,  # Will be set if someone replies to this
+                    is_edited=False,
+                    is_deleted=False,
+                    reactions={},
                 )
 
-                # Check for thread relation
-                thread_root_id = None
-                thread_indicator = ""
-                thread_handle = None
+                # Assign handle using the common system
+                msg.handle = _get_or_create_handle(room_id, event.event_id)
 
-                if hasattr(event, "source"):
-                    content = event.source.get("content", {})
-                    relates_to = content.get("m.relates_to", {})
-                    if relates_to.get("rel_type") == "m.thread":
-                        thread_root_id = relates_to.get("event_id")
-                        # Find the thread handle if we have the root message
-                        if thread_root_id in thread_handles:
-                            thread_handle = thread_handles[thread_root_id]
-                            thread_indicator = f"[dim yellow]↳ {thread_handle}[/dim yellow] "
-                        # This is the first reply to a message, making it a thread root
-                        elif thread_root_id in event_to_idx:
-                            root_idx = event_to_idx[thread_root_id]
-                            if not messages[root_idx].get("is_thread_root"):
-                                # Mark the original message as a thread root
-                                thread_handle = f"t{thread_counter}"
-                                thread_handles[thread_root_id] = thread_handle
-                                thread_counter += 1
-                                messages[root_idx]["is_thread_root"] = True
-                                messages[root_idx]["thread_handle"] = thread_handle
-                                messages[root_idx]["thread_indicator"] = (
-                                    f"[bold yellow]🧵 {thread_handle}[/bold yellow] "
-                                )
-                                # Now this reply gets the thread indicator
-                                thread_indicator = f"[dim yellow]↳ {thread_handle}[/dim yellow] "
+                # Handle thread relationships
+                if thread_root_id and thread_root_id in event_to_idx:
+                    # This is a reply to an existing message
+                    root_idx = event_to_idx[thread_root_id]
+                    if not messages[root_idx].is_thread_root:
+                        # Mark the original message as a thread root
+                        messages[root_idx].is_thread_root = True
+                        # Assign thread handle
+                        thread_simple_id = _get_or_create_id(thread_root_id)
+                        messages[root_idx].thread_handle = f"t{thread_simple_id}"
+                    # Set thread handle for the reply
+                    thread_simple_id = _get_or_create_id(thread_root_id)
+                    msg.thread_handle = f"t{thread_simple_id}"
 
-                # Check if this message becomes a thread root (when someone replies to it)
-                # This would need to be handled when a thread reply arrives
-
-                msg = {
-                    "time": time_str,
-                    "handle": f"m{handle_counter}",
-                    "sender": event.sender,
-                    "content": event.body,
-                    "event_id": event.event_id,
-                    "thread_root_id": thread_root_id,
-                    "thread_indicator": thread_indicator,
-                    "edited": False,
-                    "deleted": False,
-                }
                 messages.append(msg)
                 event_to_idx[event.event_id] = len(messages) - 1
-                handle_counter += 1
 
                 # Keep only last 30 messages
                 if len(messages) > 30:
                     old = messages.pop(0)
-                    del event_to_idx[old["event_id"]]
+                    if old.event_id:
+                        del event_to_idx[old.event_id]
                     # Reindex
-                    event_to_idx = {m["event_id"]: i for i, m in enumerate(messages)}
+                    event_to_idx = {m.event_id: i for i, m in enumerate(messages) if m.event_id}
 
             elif isinstance(event, ReactionEvent):
                 # Add reaction to message
                 if hasattr(event, "reacts_to") and event.reacts_to in event_to_idx:
                     idx = event_to_idx[event.reacts_to]
                     emoji = event.key if hasattr(event, "key") else "👍"
-                    # Add emoji to reactions string
-                    current = messages[idx].get("reactions", "")
-                    if emoji not in current:  # Avoid duplicate emojis
-                        messages[idx]["reactions"] = current + emoji
+                    # Initialize reactions dict if needed
+                    if not messages[idx].reactions:
+                        messages[idx].reactions = {}
+                    # Add user to emoji reactions
+                    if emoji not in messages[idx].reactions:
+                        messages[idx].reactions[emoji] = []
+                    if event.sender not in messages[idx].reactions[emoji]:
+                        messages[idx].reactions[emoji].append(event.sender)
 
             elif isinstance(event, RedactedEvent):
                 # Mark message as deleted
                 if hasattr(event, "redacts") and event.redacts in event_to_idx:
                     idx = event_to_idx[event.redacts]
-                    messages[idx]["deleted"] = True
+                    messages[idx].is_deleted = True
 
         # Load recent messages first
         recent = await _get_messages(client, room_id, limit=20)
-        thread_handles = {}  # Map thread root IDs to handles
-        thread_counter = 1
+
+        # Assign handles to recent messages
+        recent = _assign_message_handles(recent)
 
         for msg in recent:
-            time_str = msg.timestamp.strftime("%H:%M:%S")
-
-            # Determine thread indicators
-            thread_indicator = ""
-            thread_handle = None
-
-            if msg.is_thread_root:
-                # This message starts a thread
-                thread_handle = f"t{thread_counter}"
-                thread_handles[msg.event_id] = thread_handle
-                thread_indicator = f"[bold yellow]🧵 {thread_handle}[/bold yellow] "
-                thread_counter += 1
-            elif msg.thread_root_id and msg.thread_root_id in thread_handles:
-                # This is a reply in a thread
-                thread_handle = thread_handles[msg.thread_root_id]
-                thread_indicator = f"[dim yellow]↳ {thread_handle}[/dim yellow] "
-
-            msg_data = {
-                "time": time_str,
-                "handle": f"m{handle_counter}",
-                "sender": msg.sender,
-                "content": msg.content,
-                "event_id": msg.event_id,
-                "thread_root_id": msg.thread_root_id,
-                "thread_handle": thread_handle,
-                "thread_indicator": thread_indicator,
-                "is_thread_root": msg.is_thread_root,
-                "edited": False,
-                "deleted": False,
-                "reactions": "",
-            }
-            # Add reactions if any
-            if msg.reactions:
-                msg_data["reactions"] = " ".join(
-                    f"{emoji}({len(users)})" for emoji, users in msg.reactions.items()
-                )
-            messages.append(msg_data)
+            # Messages from _get_messages already have all needed fields
+            messages.append(msg)
             if msg.event_id:
                 event_to_idx[msg.event_id] = len(messages) - 1
-            handle_counter += 1
 
         # Register callbacks
         client.add_event_callback(handle_event, RoomMessageText)
@@ -907,6 +925,7 @@ async def _get_messages(client: AsyncClient, room_id: str, limit: int = 20) -> l
                     continue  # Skip edit events themselves
 
                 # Check if this message has been edited
+                is_edited = False
                 if event.event_id in edits_map:
                     edit_event = edits_map[event.event_id]
                     edit_content = _get_event_content(edit_event)
@@ -919,6 +938,7 @@ async def _get_messages(client: AsyncClient, room_id: str, limit: int = 20) -> l
                         if message_content.startswith("* "):
                             message_content = message_content[2:]
                     message_content = f"{message_content} [edited]"
+                    is_edited = True
                 else:
                     message_content = event.body
 
@@ -937,6 +957,7 @@ async def _get_messages(client: AsyncClient, room_id: str, limit: int = 20) -> l
                         thread_root_id=thread_root_id,
                         reply_to_id=reply_to_id,
                         is_thread_root=False,  # Will update after
+                        is_edited=is_edited,
                         reactions={},  # Will populate below
                     )
                 )
@@ -952,6 +973,7 @@ async def _get_messages(client: AsyncClient, room_id: str, limit: int = 20) -> l
                         thread_root_id=None,
                         reply_to_id=None,
                         is_thread_root=False,
+                        is_deleted=True,
                         reactions={},
                     )
                 )
@@ -1217,28 +1239,21 @@ def _display_messages_rich(messages: list[Message], room_name: str) -> None:
 
     for msg in messages:
         time_str = msg.timestamp.strftime("%H:%M")
-        prefix = ""
 
-        # Add thread indicators
-        if msg.is_thread_root and msg.thread_handle:
-            prefix = f"[bold yellow]🧵 {msg.thread_handle}[/bold yellow] "
-        elif msg.thread_handle:
-            prefix = f"  ↳ [dim yellow]{msg.thread_handle}[/dim yellow] "
-
-        # Use the handle from the message
-        handle = f"[bold magenta]{msg.handle}[/bold magenta]"
-
-        # Show the message with handle
-        console.print(
-            f"{handle} {prefix}[dim]{time_str}[/dim] [cyan]{msg.sender}[/cyan]: {msg.content}"
+        # Use common formatting helpers
+        thread_indicator = _format_thread_indicator(msg.is_thread_root, msg.thread_handle)
+        line = _format_message_line(
+            handle=msg.handle or "",
+            time_str=time_str,
+            sender=msg.sender,
+            content=msg.content,
+            thread_indicator=thread_indicator,
         )
+        console.print(line)
 
-        # Show reactions if any
-        if msg.reactions:
-            reaction_str = " ".join(
-                f"{emoji} {len(users)}" for emoji, users in msg.reactions.items()
-            )
-            console.print(f"    [dim]Reactions: {reaction_str}[/dim]")
+        # Show reactions using common formatter
+        if reactions_line := _format_reactions_line(msg.reactions):
+            console.print(reactions_line)
 
     # Show available actions
     if messages:
