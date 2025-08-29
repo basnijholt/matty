@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from pathlib import Path
+from typing import NamedTuple
 from urllib.parse import urlparse
 
 import typer
@@ -298,16 +299,23 @@ def _is_relation_type(content: dict, rel_type: str) -> bool:
     return False
 
 
-def _detect_thread_relation(content: dict) -> tuple[str | None, bool]:
+class ThreadRelation(NamedTuple):
+    """Thread relationship information."""
+
+    thread_root_id: str | None
+    is_thread_reply: bool
+
+
+def _detect_thread_relation(content: dict) -> ThreadRelation:
     """Detect thread relationships in message content.
 
     Returns:
-        tuple: (thread_root_id, is_thread_reply)
+        ThreadRelation: Named tuple with thread_root_id and is_thread_reply
     """
     if _is_relation_type(content, "m.thread"):
         relation = _get_relation(content)
-        return relation.get("event_id"), True
-    return None, False
+        return ThreadRelation(relation.get("event_id"), True)
+    return ThreadRelation(None, False)
 
 
 def _detect_edit_relation(content: dict) -> str | None:
@@ -724,7 +732,7 @@ async def _stream_messages(
                     return  # Skip duplicates
 
                 # Check for thread relation using common helper
-                thread_root_id, is_reply = _detect_thread_relation(content)
+                thread_relation = _detect_thread_relation(content)
 
                 # Create Message object
                 msg = Message(
@@ -733,7 +741,7 @@ async def _stream_messages(
                     sender=event.sender,
                     content=event.body,
                     timestamp=datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC),
-                    thread_root_id=thread_root_id,
+                    thread_root_id=thread_relation.thread_root_id,
                     is_thread_root=False,  # Will be set if someone replies to this
                     is_edited=False,
                     is_deleted=False,
@@ -744,17 +752,20 @@ async def _stream_messages(
                 msg.handle = _get_or_create_handle(room_id, event.event_id)
 
                 # Handle thread relationships
-                if thread_root_id and thread_root_id in event_to_idx:
+                if (
+                    thread_relation.thread_root_id
+                    and thread_relation.thread_root_id in event_to_idx
+                ):
                     # This is a reply to an existing message
-                    root_idx = event_to_idx[thread_root_id]
+                    root_idx = event_to_idx[thread_relation.thread_root_id]
                     if not messages[root_idx].is_thread_root:
                         # Mark the original message as a thread root
                         messages[root_idx].is_thread_root = True
                         # Assign thread handle
-                        thread_simple_id = _get_or_create_id(thread_root_id)
+                        thread_simple_id = _get_or_create_id(thread_relation.thread_root_id)
                         messages[root_idx].thread_handle = f"t{thread_simple_id}"
                     # Set thread handle for the reply
-                    thread_simple_id = _get_or_create_id(thread_root_id)
+                    thread_simple_id = _get_or_create_id(thread_relation.thread_root_id)
                     msg.thread_handle = f"t{thread_simple_id}"
 
                 messages.append(msg)
