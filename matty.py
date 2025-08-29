@@ -351,11 +351,19 @@ def _format_message_line(
 
 
 def _format_reactions_line(reactions: dict[str, list[str]]) -> str:
-    """Format reactions for display."""
+    """Format reactions for display in rich format."""
     if not reactions:
         return ""
     reaction_str = " ".join(f"{emoji}({len(users)})" for emoji, users in reactions.items())
     return f"    {reaction_str}"
+
+
+def _format_reactions_simple(reactions: dict[str, list[str]]) -> str:
+    """Format reactions for display in simple format."""
+    if not reactions:
+        return ""
+    reaction_str = " ".join(f"{emoji}:{len(users)}" for emoji, users in reactions.items())
+    return f"    Reactions: {reaction_str}"
 
 
 def _format_thread_indicator(is_thread_root: bool, thread_handle: str | None) -> str:
@@ -759,8 +767,8 @@ def _handle_stream_event(
         messages.append(msg)
         event_to_idx[event.event_id] = len(messages) - 1
 
-        # Keep only last 30 messages
-        if len(messages) > 30:
+        # Keep only last 1000 messages to prevent unbounded memory growth
+        if len(messages) > 1000:
             old = messages.pop(0)
             if old.event_id:
                 del event_to_idx[old.event_id]
@@ -860,6 +868,62 @@ async def _stream_messages_rich(
                     await sync_task
 
 
+async def _stream_messages_simple(
+    client: AsyncClient,
+    room_id: str,
+    room_name: str,
+    format: OutputFormat,
+    timeout: int | None = None,
+) -> None:
+    """Stream messages in simple or JSON format."""
+    console.print(f"[cyan]Streaming messages from {room_name}... Press Ctrl+C to stop[/cyan]")
+    if timeout:
+        console.print(f"[dim]Will stop after {timeout} seconds[/dim]")
+
+    seen_event_ids = set()
+
+    def message_callback(room, event):
+        if room.room_id != room_id:
+            return
+
+        if isinstance(event, RoomMessageText) and event.event_id not in seen_event_ids:
+            seen_event_ids.add(event.event_id)
+            time_str = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC).strftime(
+                "%H:%M:%S"
+            )
+
+            if format == OutputFormat.simple:
+                print(f"[{time_str}] {event.sender}: {event.body}")
+            elif format == OutputFormat.json:
+                data = {
+                    "timestamp": time_str,
+                    "sender": event.sender,
+                    "content": event.body,
+                    "event_id": event.event_id,
+                    "room": room_name,
+                }
+                print(json.dumps(data))
+
+    client.add_event_callback(message_callback, RoomMessageText)
+
+    sync_task = None
+    try:
+        if timeout:
+            sync_task = asyncio.create_task(client.sync_forever(timeout=30000))
+            await asyncio.wait_for(sync_task, timeout=timeout)
+        else:
+            await client.sync_forever(timeout=30000)
+    except TimeoutError:
+        console.print(f"\n[yellow]Stream timeout reached ({timeout} seconds)[/yellow]")
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Stream interrupted by user[/yellow]")
+    finally:
+        if sync_task and not sync_task.done():
+            sync_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await sync_task
+
+
 async def _stream_messages(
     client: AsyncClient,
     room_id: str,
@@ -868,59 +932,10 @@ async def _stream_messages(
     timeout: int | None = None,
 ) -> None:
     """Stream messages from a room in real-time."""
-
-    # Use Live display for rich format
     if format == OutputFormat.rich:
         await _stream_messages_rich(client, room_id, room_name, timeout)
-
     else:
-        # Simple/JSON format - use basic streaming
-        console.print(f"[cyan]Streaming messages from {room_name}... Press Ctrl+C to stop[/cyan]")
-        if timeout:
-            console.print(f"[dim]Will stop after {timeout} seconds[/dim]")
-
-        seen_event_ids = set()
-
-        def message_callback(room, event):
-            if room.room_id != room_id:
-                return
-
-            if isinstance(event, RoomMessageText) and event.event_id not in seen_event_ids:
-                seen_event_ids.add(event.event_id)
-                time_str = datetime.fromtimestamp(event.server_timestamp / 1000, tz=UTC).strftime(
-                    "%H:%M:%S"
-                )
-
-                if format == OutputFormat.simple:
-                    print(f"[{time_str}] {event.sender}: {event.body}")
-                elif format == OutputFormat.json:
-                    data = {
-                        "timestamp": time_str,
-                        "sender": event.sender,
-                        "content": event.body,
-                        "event_id": event.event_id,
-                        "room": room_name,
-                    }
-                    print(json.dumps(data))
-
-        client.add_event_callback(message_callback, RoomMessageText)
-
-        sync_task = None
-        try:
-            if timeout:
-                sync_task = asyncio.create_task(client.sync_forever(timeout=30000))
-                await asyncio.wait_for(sync_task, timeout=timeout)
-            else:
-                await client.sync_forever(timeout=30000)
-        except TimeoutError:
-            console.print(f"\n[yellow]Stream timeout reached ({timeout} seconds)[/yellow]")
-        except KeyboardInterrupt:
-            console.print("\n[yellow]Stream interrupted by user[/yellow]")
-        finally:
-            if sync_task and not sync_task.done():
-                sync_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await sync_task
+        await _stream_messages_simple(client, room_id, room_name, format, timeout)
 
 
 async def _get_messages(client: AsyncClient, room_id: str, limit: int = 20) -> list[Message]:
@@ -1307,12 +1322,9 @@ def _display_messages_simple(messages: list[Message], room_name: str) -> None:
             thread_mark = f" [IN-THREAD {msg.thread_handle}]"
         print(f"{msg.handle} [{time_str}] {msg.sender}: {msg.content}{thread_mark}")
 
-        # Show reactions if any
-        if msg.reactions:
-            reaction_str = " ".join(
-                f"{emoji}:{len(users)}" for emoji, users in msg.reactions.items()
-            )
-            print(f"    Reactions: {reaction_str}")
+        # Show reactions using helper
+        if reactions_str := _format_reactions_simple(msg.reactions):
+            print(reactions_str)
 
 
 def _display_messages_json(messages: list[Message], room_name: str) -> None:
