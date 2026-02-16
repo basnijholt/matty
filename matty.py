@@ -592,9 +592,19 @@ def _assign_message_handles(messages: list[Message]) -> list[Message]:
 
 
 async def _get_messages(client: AsyncClient, room_id: str, limit: int = 20) -> list[Message]:
-    """Fetch messages from a room, including thread information, reactions, and edits."""
+    """Fetch messages from a room, including thread information, reactions, and edits.
+
+    Note: The Matrix API returns all timeline events, not just messages. Custom events
+    (like com.mindroom.agent.activity), state events, and other non-message events are
+    included in the limit, so you may get fewer actual messages than requested.
+    """
     try:
         response = await client.room_messages(room_id, limit=limit)
+
+        # Check if response is an error
+        if not hasattr(response, "chunk"):
+            console.print("[red]Error fetching messages[/red]")
+            return []
 
         messages = []
         thread_roots = set()  # Track which messages have threads
@@ -1838,6 +1848,17 @@ def reactions(  # pragma: no cover
                 )
 
     asyncio.run(_reactions())
+
+
+@app.command("tui")
+def tui(  # pragma: no cover
+    username: str | None = _USERNAME_OPT,
+    password: str | None = _PASSWORD_OPT,
+):
+    """Launch interactive TUI chat interface."""
+    from matty_tui import run_tui  # noqa: PLC0415
+
+    run_tui(username=username, password=password)
 
 
 if __name__ == "__main__":
