@@ -1850,5 +1850,16 @@ def reactions(  # pragma: no cover
     asyncio.run(_reactions())
 
 
+@app.command("tui")
+def tui(  # pragma: no cover
+    username: str | None = _USERNAME_OPT,
+    password: str | None = _PASSWORD_OPT,
+):
+    """Launch interactive TUI chat interface."""
+    from matty_tui import run_tui  # noqa: PLC0415
+
+    run_tui(username=username, password=password)
+
+
 if __name__ == "__main__":
     app()
