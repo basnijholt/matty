@@ -22,6 +22,7 @@ classifiers = [
 dependencies = [
     "aiofiles>=24.1.0",
     "matrix-nio>=0.25.2",
+    "prompt_toolkit>=3.0.0",
     "pydantic>=2.11.7",
     "pydantic-settings>=2.10.1",
     "python-dotenv>=1.1.1",
@@ -62,7 +63,7 @@ source = "versioningit"
 packages = ["."]
 
 [tool.hatch.build]
-only-include = ["matty.py"]
+only-include = ["matty.py", "matty_tui.py"]
 
 [tool.coverage.run]
 branch = true
