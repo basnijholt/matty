@@ -5,7 +5,9 @@ import asyncio
 import json
 import os
 import re
+import shlex
 import sys
+import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -442,6 +444,21 @@ class OutputFormat(str, Enum):
     json = "json"
 
 
+@dataclass
+class ChatSessionState:
+    """State for an interactive chat session."""
+
+    room_id: str
+    room_name: str
+    thread_id: str | None
+    history_limit: int
+    poll_interval: float
+    wait_timeout: float
+    mentions: bool
+    self_user_id: str | None
+    agent_mention: str | None = None
+
+
 # =============================================================================
 # CLI Helper Functions
 # =============================================================================
@@ -592,9 +609,19 @@ def _assign_message_handles(messages: list[Message]) -> list[Message]:
 
 
 async def _get_messages(client: AsyncClient, room_id: str, limit: int = 20) -> list[Message]:
-    """Fetch messages from a room, including thread information, reactions, and edits."""
+    """Fetch messages from a room, including thread information, reactions, and edits.
+
+    Note: The Matrix API returns all timeline events, not just messages. Custom events
+    (like com.mindroom.agent.activity), state events, and other non-message events are
+    included in the limit, so you may get fewer actual messages than requested.
+    """
     try:
         response = await client.room_messages(room_id, limit=limit)
+
+        # Check if response is an error
+        if not hasattr(response, "chunk"):
+            console.print("[red]Error fetching messages[/red]")
+            return []
 
         messages = []
         thread_roots = set()  # Track which messages have threads
@@ -813,36 +840,76 @@ async def _send_message(
     mentions: bool = True,
 ) -> bool:
     """Send a message to a room, optionally as a thread reply or regular reply."""
+    success, _ = await _send_message_with_event_id(
+        client=client,
+        room_id=room_id,
+        message=message,
+        thread_root_id=thread_root_id,
+        reply_to_id=reply_to_id,
+        mentions=mentions,
+    )
+    return success
+
+
+def _build_outgoing_message_content(
+    client: AsyncClient,
+    room_id: str,
+    message: str,
+    thread_root_id: str | None = None,
+    reply_to_id: str | None = None,
+    mentions: bool = True,
+) -> dict:
+    """Create Matrix content payload for an outgoing message."""
+    if mentions:
+        room_users = _get_room_users(client, room_id)
+        body, formatted_body, mentioned_user_ids = _parse_mentions(message, room_users)
+    else:
+        body = message
+        formatted_body = None
+        mentioned_user_ids = []
+
+    return _build_message_content(
+        body=body,
+        formatted_body=formatted_body,
+        mentioned_user_ids=mentioned_user_ids,
+        thread_root_id=thread_root_id,
+        reply_to_id=reply_to_id,
+    )
+
+
+def _get_response_event_id(response: object) -> str | None:
+    """Extract event ID from a room send response if available."""
+    event_id = getattr(response, "event_id", None)
+    return event_id if isinstance(event_id, str) else None
+
+
+async def _send_message_with_event_id(
+    client: AsyncClient,
+    room_id: str,
+    message: str,
+    thread_root_id: str | None = None,
+    reply_to_id: str | None = None,
+    mentions: bool = True,
+) -> tuple[bool, str | None]:
+    """Send a message and return (success, event_id)."""
     try:
-        if mentions:
-            # Get room users for mention parsing
-            room_users = _get_room_users(client, room_id)
-
-            # Parse mentions
-            body, formatted_body, mentioned_user_ids = _parse_mentions(message, room_users)
-        else:
-            # Skip mention parsing entirely
-            body = message
-            formatted_body = None
-            mentioned_user_ids = []
-
-        # Build message content using helper
-        content = _build_message_content(
-            body=body,
-            formatted_body=formatted_body,
-            mentioned_user_ids=mentioned_user_ids,
+        content = _build_outgoing_message_content(
+            client=client,
+            room_id=room_id,
+            message=message,
             thread_root_id=thread_root_id,
             reply_to_id=reply_to_id,
+            mentions=mentions,
         )
 
         response = await client.room_send(room_id, message_type="m.room.message", content=content)
         if _is_success_response(response):
-            return True
+            return True, _get_response_event_id(response)
         console.print(f"[red]Failed to send message: {response}[/red]")
-        return False  # noqa: TRY300
+        return False, None  # noqa: TRY300
     except Exception as e:
         console.print(f"[red]Failed to send: {e}[/red]")
-        return False
+        return False, None
 
 
 async def _send_reaction(
@@ -1244,7 +1311,7 @@ async def _with_client_in_room(
     Yields:
         tuple[AsyncClient, str, str]: (client, room_id, room_name)
     """
-    async with _with_client(username, password) as (client, user, pwd):
+    async with _with_client(username, password) as (client, _user, _pwd):
         if client is None:
             yield None, None, None
             return
@@ -1261,6 +1328,507 @@ async def _with_client_in_room(
 
         room_id, room_name = room_info
         yield client, room_id, room_name
+
+
+# =============================================================================
+# Interactive Chat Helpers
+# =============================================================================
+
+
+def _normalize_agent_mention(agent: str | None) -> str | None:
+    """Normalize agent mention input to an @mention."""
+    if not agent:
+        return None
+    mention = agent.strip()
+    if not mention:
+        return None
+    return mention if mention.startswith("@") else f"@{mention}"
+
+
+def _apply_agent_prefix(message: str, agent_mention: str | None) -> str:
+    """Prefix outgoing message with agent mention when configured."""
+    if not agent_mention:
+        return message
+    if message.lstrip().startswith("@"):
+        return message
+    return f"{agent_mention} {message}"
+
+
+def _chat_scope_label(thread_id: str | None) -> str:
+    """Human-readable label for current chat scope."""
+    if thread_id is None:
+        return "main timeline"
+    simple_id = _lookup_mapping("thread_ids", thread_id)
+    if simple_id:
+        return f"thread t{simple_id}"
+    return "thread"
+
+
+def _chat_prompt_label(session: ChatSessionState) -> str:
+    """Prompt label for interactive chat input."""
+    scope = "main" if session.thread_id is None else _chat_scope_label(session.thread_id)
+    return f"[bold green]you[/bold green] [dim]({scope})[/dim] > "
+
+
+def _print_chat_help() -> None:
+    """Print slash commands for interactive chat."""
+    commands = """
+[bold]/help[/bold]                Show this help
+[bold]/refresh[/bold]             Refresh messages
+[bold]/threads[/bold]             List thread starters in this room
+[bold]/thread <id>[/bold]         Switch to a thread (e.g. /thread t1)
+[bold]/main[/bold]                Return to main timeline
+[bold]/history <n>[/bold]         Set visible message count
+[bold]/reply <mX> <text>[/bold]   Reply to a message handle
+[bold]/react <mX> <emoji>[/bold]  React to a message handle
+[bold]/edit <mX> <text>[/bold]    Edit one of your messages
+[bold]/redact <mX> [reason][/bold] Delete/redact a message
+[bold]/quit[/bold]                Exit interactive chat
+""".strip()
+    console.print(Panel(commands, title="Matty Chat Commands", expand=False))
+
+
+def _parse_chat_command(command_text: str) -> tuple[str, list[str], str | None]:
+    """Parse a slash command from chat input."""
+    if not command_text.startswith("/"):
+        return "", [], "Commands must start with '/'"
+    try:
+        parts = shlex.split(command_text)
+    except ValueError as exc:
+        return "", [], f"Invalid command: {exc}"
+
+    if not parts:
+        return "", [], "Empty command"
+
+    command = parts[0].lstrip("/").lower()
+    return command, parts[1:], None
+
+
+async def _get_chat_messages(client: AsyncClient, session: ChatSessionState) -> list[Message]:
+    """Get messages for the current chat scope (timeline or thread)."""
+    limit = max(session.history_limit, 20)
+    if session.thread_id is not None:
+        return await _get_thread_messages(client, session.room_id, session.thread_id, limit)
+    return await _get_messages(client, session.room_id, limit)
+
+
+def _collect_event_ids(messages: list[Message]) -> set[str]:
+    """Collect non-empty event IDs from a message list."""
+    return {msg.event_id for msg in messages if msg.event_id}
+
+
+def _format_chat_sender(sender: str, self_user_id: str | None) -> str:
+    """Format sender field for chat rendering."""
+    if self_user_id and sender == self_user_id:
+        return "[bold green]you[/bold green]"
+    if sender.startswith("@mindroom_"):
+        return f"[bold magenta]{sender}[/bold magenta]"
+    return f"[cyan]{sender}[/cyan]"
+
+
+def _render_chat_messages(messages: list[Message], session: ChatSessionState) -> None:
+    """Render chat transcript in a compact TUI-style layout."""
+    scope_label = _chat_scope_label(session.thread_id)
+    header = f"[bold cyan]{session.room_name}[/bold cyan] • [yellow]{scope_label}[/yellow]"
+    if session.agent_mention:
+        header += f" • default mention: [magenta]{session.agent_mention}[/magenta]"
+
+    console.clear()
+    console.print(Panel(header, title="Matty Chat", expand=False))
+
+    if not messages:
+        console.print("[dim]No messages in this scope yet.[/dim]")
+    else:
+        for msg in messages[-session.history_limit :]:
+            time_str = msg.timestamp.astimezone().strftime("%H:%M:%S")
+            handle = f"[bold magenta]{msg.handle or 'm?'}[/bold magenta]"
+            sender = _format_chat_sender(msg.sender, session.self_user_id)
+            thread_prefix = ""
+            if session.thread_id is not None and msg.event_id == session.thread_id:
+                thread_prefix = "[bold yellow]🧵 root[/bold yellow] "
+            elif msg.thread_handle:
+                thread_prefix = f"[dim yellow]{msg.thread_handle}[/dim yellow] "
+            console.print(f"{handle} {thread_prefix}[dim]{time_str}[/dim] {sender}: {msg.content}")
+
+            if msg.reactions:
+                reaction_str = " ".join(
+                    f"{emoji} {len(users)}" for emoji, users in msg.reactions.items()
+                )
+                console.print(f"    [dim]Reactions: {reaction_str}[/dim]")
+
+    console.print("[dim]Type a message or /help for commands[/dim]")
+
+
+async def _wait_for_new_messages(
+    client: AsyncClient,
+    session: ChatSessionState,
+    known_event_ids: set[str],
+) -> None:
+    """Wait until new non-self messages appear or timeout is reached."""
+    if session.wait_timeout <= 0:
+        return
+
+    deadline = time.monotonic() + session.wait_timeout
+    with console.status("[dim]Waiting for new messages...[/dim]", spinner="dots"):
+        while time.monotonic() < deadline:
+            messages = await _get_chat_messages(client, session)
+            new_event_ids = _collect_event_ids(messages) - known_event_ids
+            if any(
+                msg.event_id in new_event_ids and msg.sender != session.self_user_id
+                for msg in messages
+            ):
+                return
+            await asyncio.sleep(session.poll_interval)
+
+
+async def _wait_for_thread_reply(
+    client: AsyncClient,
+    session: ChatSessionState,
+    root_event_id: str,
+) -> Message | None:
+    """Wait for the first non-self reply in a newly created thread."""
+    if session.wait_timeout <= 0:
+        return None
+
+    deadline = time.monotonic() + session.wait_timeout
+    limit = max(session.history_limit * 2, 50)
+    with console.status("[dim]Waiting for thread reply...[/dim]", spinner="dots"):
+        while time.monotonic() < deadline:
+            messages = await _get_messages(client, session.room_id, limit)
+            for msg in messages:
+                if msg.thread_root_id == root_event_id and msg.sender != session.self_user_id:
+                    return msg
+            await asyncio.sleep(session.poll_interval)
+    return None
+
+
+async def _show_chat_threads(client: AsyncClient, session: ChatSessionState) -> None:
+    """Display thread starters available in the current room."""
+    threads = await _get_threads(client, session.room_id, max(session.history_limit * 2, 50))
+    if not threads:
+        console.print("[yellow]No threads found in this room.[/yellow]")
+        return
+
+    table = Table(title=f"Threads in {session.room_name}", show_lines=True)
+    table.add_column("ID", style="bold yellow", width=6)
+    table.add_column("Time", style="dim", width=10)
+    table.add_column("Author", style="cyan")
+    table.add_column("Start", style="green")
+
+    for thread in threads:
+        if not thread.event_id:
+            continue
+        thread_id = _get_or_create_id(thread.event_id)
+        preview = thread.content[:60] + ("..." if len(thread.content) > 60 else "")
+        table.add_row(
+            f"t{thread_id}",
+            thread.timestamp.astimezone().strftime("%H:%M"),
+            thread.sender,
+            preview,
+        )
+    console.print(table)
+
+
+async def _chat_action_reply(
+    args: list[str],
+    session: ChatSessionState,
+    client: AsyncClient,
+) -> None:
+    if len(args) < 2:
+        console.print("[red]Usage: /reply <mX> <text>[/red]")
+        return
+
+    handle = args[0]
+    message = " ".join(args[1:])
+    target_msg = await _get_message_by_handle(
+        client, session.room_id, handle, session.history_limit
+    )
+    if not target_msg or not target_msg.event_id:
+        console.print(f"[red]Message {handle} not found[/red]")
+        return
+
+    if await _send_message(
+        client,
+        session.room_id,
+        message,
+        reply_to_id=target_msg.event_id,
+        mentions=session.mentions,
+    ):
+        console.print(f"[green]✓ Reply sent to {handle}[/green]")
+
+
+async def _chat_action_react(
+    args: list[str],
+    session: ChatSessionState,
+    client: AsyncClient,
+) -> None:
+    if len(args) != 2:
+        console.print("[red]Usage: /react <mX> <emoji>[/red]")
+        return
+
+    handle, emoji = args
+    target_msg = await _get_message_by_handle(
+        client, session.room_id, handle, session.history_limit
+    )
+    if not target_msg or not target_msg.event_id:
+        console.print(f"[red]Message {handle} not found[/red]")
+        return
+
+    if await _send_reaction(client, session.room_id, target_msg.event_id, emoji):
+        console.print(f"[green]✓ Reacted to {handle} with {emoji}[/green]")
+
+
+async def _chat_action_edit(
+    args: list[str],
+    session: ChatSessionState,
+    client: AsyncClient,
+) -> None:
+    if len(args) < 2:
+        console.print("[red]Usage: /edit <mX> <text>[/red]")
+        return
+
+    handle = args[0]
+    new_content = " ".join(args[1:])
+    target_msg = await _get_message_by_handle(
+        client, session.room_id, handle, session.history_limit
+    )
+    if not target_msg or not target_msg.event_id:
+        console.print(f"[red]Message {handle} not found[/red]")
+        return
+
+    if session.mentions:
+        room_users = _get_room_users(client, session.room_id)
+        body, formatted_body, mentioned_user_ids = _parse_mentions(new_content, room_users)
+    else:
+        body = new_content
+        formatted_body = None
+        mentioned_user_ids = []
+
+    edit_content = _build_edit_content(
+        original_event_id=target_msg.event_id,
+        body=body,
+        formatted_body=formatted_body,
+        mentioned_user_ids=mentioned_user_ids,
+    )
+    response = await client.room_send(
+        session.room_id,
+        message_type="m.room.message",
+        content=edit_content,
+    )
+    if _is_success_response(response):
+        console.print(f"[green]✓ Edited {handle}[/green]")
+    else:
+        console.print(f"[red]Failed to edit message: {response}[/red]")
+
+
+async def _chat_action_redact(
+    args: list[str],
+    session: ChatSessionState,
+    client: AsyncClient,
+) -> None:
+    if not args:
+        console.print("[red]Usage: /redact <mX> [reason][/red]")
+        return
+
+    handle = args[0]
+    reason = " ".join(args[1:]) if len(args) > 1 else None
+    target_msg = await _get_message_by_handle(
+        client, session.room_id, handle, session.history_limit
+    )
+    if not target_msg or not target_msg.event_id:
+        console.print(f"[red]Message {handle} not found[/red]")
+        return
+
+    response = await client.room_redact(session.room_id, target_msg.event_id, reason=reason)
+    if _is_success_response(response):
+        console.print(f"[green]✓ Redacted {handle}[/green]")
+    else:
+        console.print(f"[red]Failed to redact message: {response}[/red]")
+
+
+_CHAT_ACTION_HANDLERS = {
+    "reply": _chat_action_reply,
+    "react": _chat_action_react,
+    "edit": _chat_action_edit,
+    "redact": _chat_action_redact,
+}
+
+
+async def _execute_chat_action_command(
+    command: str,
+    args: list[str],
+    session: ChatSessionState,
+    client: AsyncClient,
+) -> None:
+    """Execute action-oriented slash commands."""
+    if handler := _CHAT_ACTION_HANDLERS.get(command):
+        await handler(args, session, client)
+
+
+def _switch_chat_thread(args: list[str], session: ChatSessionState) -> None:
+    """Switch current chat scope to a target thread or main timeline."""
+    if len(args) != 1:
+        console.print("[red]Usage: /thread <tX|event_id|main>[/red]")
+        return
+
+    if args[0] in {"main", "none"}:
+        session.thread_id = None
+        console.print("[green]Switched to main timeline[/green]")
+        return
+
+    resolved_thread_id, error_msg = _resolve_thread_id(args[0])
+    if error_msg:
+        console.print(error_msg)
+        return
+
+    session.thread_id = resolved_thread_id
+    console.print(f"[green]Switched to {_chat_scope_label(session.thread_id)}[/green]")
+
+
+def _set_chat_history_limit(args: list[str], session: ChatSessionState) -> None:
+    """Update visible message count for chat session."""
+    if len(args) != 1:
+        console.print("[red]Usage: /history <number>[/red]")
+        return
+
+    try:
+        new_limit = int(args[0])
+    except ValueError:
+        console.print("[red]History value must be an integer[/red]")
+        return
+
+    if new_limit < 1:
+        console.print("[red]History value must be >= 1[/red]")
+        return
+
+    session.history_limit = new_limit
+    console.print(f"[green]History limit set to {new_limit}[/green]")
+
+
+async def _execute_chat_slash_command(
+    command_text: str,
+    session: ChatSessionState,
+    client: AsyncClient,
+) -> bool:
+    """Execute one slash command. Returns False when session should end."""
+    command, args, error = _parse_chat_command(command_text)
+    if error:
+        console.print(f"[red]{error}[/red]")
+        return True
+
+    if command in {"quit", "exit", "q"}:
+        return False
+
+    if command in {"help", "h", "?"}:
+        _print_chat_help()
+    elif command in {"refresh", "r"}:
+        pass
+    elif command == "threads":
+        await _show_chat_threads(client, session)
+    elif command == "main":
+        session.thread_id = None
+        console.print("[green]Switched to main timeline[/green]")
+    elif command == "thread":
+        _switch_chat_thread(args, session)
+    elif command == "history":
+        _set_chat_history_limit(args, session)
+    elif command in _CHAT_ACTION_HANDLERS:
+        await _execute_chat_action_command(command, args, session, client)
+    else:
+        console.print(f"[red]Unknown command '/{command}'[/red]")
+        console.print("[dim]Use /help to list available commands[/dim]")
+
+    return True
+
+
+async def _execute_chat_command(
+    room: str,
+    thread: str | None = None,
+    limit: int = 40,
+    poll: float = 1.5,
+    wait: float = 12.0,
+    agent: str | None = None,
+    username: str | None = None,
+    password: str | None = None,
+    mentions: bool = True,
+) -> None:
+    """Run interactive chat session for a room."""
+    async with _with_client_in_room(room, username, password, sync=True) as (
+        client,
+        room_id,
+        room_name,
+    ):
+        if client is None:
+            return
+
+        thread_id = None
+        if thread:
+            resolved_thread_id, error_msg = _resolve_thread_id(thread)
+            if error_msg:
+                console.print(error_msg)
+                return
+            thread_id = resolved_thread_id
+
+        session = ChatSessionState(
+            room_id=room_id,
+            room_name=room_name,
+            thread_id=thread_id,
+            history_limit=limit,
+            poll_interval=poll,
+            wait_timeout=wait,
+            mentions=mentions,
+            self_user_id=getattr(client, "user_id", None),
+            agent_mention=_normalize_agent_mention(agent),
+        )
+
+        _print_chat_help()
+
+        while True:
+            messages = await _get_chat_messages(client, session)
+            _render_chat_messages(messages, session)
+
+            try:
+                user_input = await asyncio.to_thread(console.input, _chat_prompt_label(session))
+            except (EOFError, KeyboardInterrupt):
+                console.print("\n[dim]Chat session ended.[/dim]")
+                return
+
+            text = user_input.strip()
+            if not text:
+                continue
+
+            if text.startswith("/"):
+                should_continue = await _execute_chat_slash_command(text, session, client)
+                if not should_continue:
+                    return
+                continue
+
+            outgoing_message = _apply_agent_prefix(text, session.agent_mention)
+            known_event_ids = _collect_event_ids(messages)
+
+            sent, event_id = await _send_message_with_event_id(
+                client=client,
+                room_id=session.room_id,
+                message=outgoing_message,
+                thread_root_id=session.thread_id,
+                mentions=session.mentions,
+            )
+            if not sent:
+                await asyncio.sleep(session.poll_interval)
+                continue
+
+            if event_id:
+                known_event_ids.add(event_id)
+
+            if session.thread_id is None and event_id:
+                reply = await _wait_for_thread_reply(client, session, event_id)
+                if reply is not None:
+                    session.thread_id = event_id
+                    thread_handle = _get_or_create_id(event_id)
+                    console.print(f"[green]Following new agent thread t{thread_handle}[/green]")
+                    continue
+
+            await _wait_for_new_messages(client, session, known_event_ids)
 
 
 # =============================================================================
@@ -1332,6 +1900,52 @@ def send(  # pragma: no cover
 
     _validate_required_args(ctx, room=room, message=message)
     asyncio.run(_execute_send_command(room, message, username, password, not no_mentions))
+
+
+@app.command("chat")
+@app.command("c", hidden=True)
+def chat(  # pragma: no cover
+    ctx: typer.Context,
+    room: str = _ROOM_OPT,
+    thread: str | None = typer.Option(
+        None, "--thread", "-t", help="Start in an existing thread (t1 or Matrix event ID)"
+    ),
+    limit: int = typer.Option(40, "--limit", "-l", help="Number of messages shown in transcript"),
+    poll: float = typer.Option(1.5, "--poll", help="Polling interval (seconds) while waiting"),
+    wait: float = typer.Option(12.0, "--wait", help="Max wait (seconds) after sending"),
+    agent: str | None = typer.Option(
+        None, "--agent", "-a", help="Auto-prefix this @mention to outgoing messages"
+    ),
+    no_mentions: bool = _NO_MENTIONS_OPT,
+    username: str | None = _USERNAME_OPT,
+    password: str | None = _PASSWORD_OPT,
+):
+    """Start an interactive terminal chat session. (alias: c)"""
+    _validate_required_args(ctx, room=room)
+
+    if limit < 1:
+        msg = "limit must be >= 1"
+        raise typer.BadParameter(msg)
+    if poll <= 0:
+        msg = "poll must be > 0"
+        raise typer.BadParameter(msg)
+    if wait < 0:
+        msg = "wait must be >= 0"
+        raise typer.BadParameter(msg)
+
+    asyncio.run(
+        _execute_chat_command(
+            room=room,
+            thread=thread,
+            limit=limit,
+            poll=poll,
+            wait=wait,
+            agent=agent,
+            username=username,
+            password=password,
+            mentions=not no_mentions,
+        )
+    )
 
 
 @app.command("threads")
