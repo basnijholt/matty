@@ -1488,19 +1488,31 @@ async def _wait_for_new_messages(
 
     deadline = time.monotonic() + session.wait_timeout
     limit = max(session.history_limit * 2, 50)
+    tracked_known_event_ids = set(known_event_ids)
+
+    # Seed from the same window used for polling so older timeline events
+    # outside the initial render window are not misclassified as "new".
+    if session.thread_id is None:
+        baseline_messages = await _get_messages(client, session.room_id, limit)
+    else:
+        baseline_messages = await _get_chat_messages(client, session)
+    tracked_known_event_ids.update(_collect_event_ids(baseline_messages))
+
     with console.status("[dim]Waiting for new messages...[/dim]", spinner="dots"):
         while time.monotonic() < deadline:
             if session.thread_id is None:
                 messages = await _get_messages(client, session.room_id, limit)
             else:
                 messages = await _get_chat_messages(client, session)
-            new_event_ids = _collect_event_ids(messages) - known_event_ids
+            new_event_ids = _collect_event_ids(messages) - tracked_known_event_ids
             for msg in messages:
                 if msg.event_id not in new_event_ids:
                     continue
                 if msg.sender == session.self_user_id:
                     continue
                 return bool(sent_root_event_id and msg.thread_root_id == sent_root_event_id)
+
+            tracked_known_event_ids.update(new_event_ids)
             await asyncio.sleep(session.poll_interval)
     return False
 

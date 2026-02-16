@@ -20,6 +20,7 @@ from matty import (
     _normalize_agent_mention,
     _parse_chat_command,
     _send_message_with_event_id,
+    _wait_for_new_messages,
     app,
 )
 
@@ -120,6 +121,35 @@ async def test_send_message_with_event_id_failure():
     success, event_id = await _send_message_with_event_id(client, "!room:test", "hello")
     assert success is False
     assert event_id is None
+
+
+@pytest.mark.asyncio
+async def test_wait_for_new_messages_ignores_old_events_outside_known_window(session):
+    session.thread_id = None
+    session.wait_timeout = 1.0
+    session.poll_interval = 0.01
+
+    old_event = _message("@alice:test", "older event", event_id="$old")
+    reply_event = _message(
+        "@mindroom_general:test",
+        "thread reply",
+        event_id="$reply",
+        thread_root_id="$root",
+    )
+
+    with patch(
+        "matty._get_messages",
+        AsyncMock(side_effect=[[old_event], [old_event, reply_event]]),
+    ) as mock_get_messages:
+        result = await _wait_for_new_messages(
+            client=MagicMock(),
+            session=session,
+            known_event_ids={"$recent"},
+            sent_root_event_id="$root",
+        )
+
+    assert result is True
+    assert mock_get_messages.await_count == 2
 
 
 @pytest.mark.asyncio
