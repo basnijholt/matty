@@ -98,19 +98,20 @@ MATRIX_SSL_VERIFY=true  # Set to false for test servers
 │ --help                -h        Show this message and exit.                            │
 ╰────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ─────────────────────────────────────────────────────────────────────────────╮
-│ rooms          List all joined rooms. (alias: r)                                       │
-│ messages       Show recent messages from a room. (alias: m)                            │
-│ users          Show users in a room. (alias: u)                                        │
-│ send           Send a message to a room. Supports @mentions. (alias: s)                │
-│ threads        List all threads in a room. (alias: t)                                  │
-│ thread         Show all messages in a specific thread. (alias: th)                     │
-│ reply          Reply to a specific message using its handle. (alias: re)               │
-│ thread-start   Start a new thread from a message using its handle. (alias: ts)         │
-│ thread-reply   Reply within an existing thread. (alias: tr)                            │
-│ react          Add a reaction to a message using its handle. (alias: rx)               │
-│ edit           Edit a message using its handle. (alias: e)                             │
-│ redact         Delete/redact a message using its handle. (alias: del)                  │
-│ reactions      Show detailed reactions for a specific message. (alias: rxs)            │
+│ rooms         List all joined rooms. (alias: r)                                        │
+│ messages      Show recent messages from a room. (alias: m)                             │
+│ users         Show users in a room. (alias: u)                                         │
+│ send          Send a message to a room. Supports @mentions. (alias: s)                 │
+│ threads       List all threads in a room. (alias: t)                                   │
+│ thread        Show all messages in a specific thread. (alias: th)                      │
+│ reply         Reply to a specific message using its handle. (alias: re)                │
+│ thread-start  Start a new thread from a message using its handle. (alias: ts)          │
+│ thread-reply  Reply within an existing thread. (alias: tr)                             │
+│ react         Add a reaction to a message using its handle. (alias: rx)                │
+│ edit          Edit a message using its handle. (alias: e)                              │
+│ redact        Delete/redact a message using its handle. (alias: del)                   │
+│ reactions     Show detailed reactions for a specific message. (alias: rxs)             │
+│ tui           Launch the interactive prompt_toolkit TUI.                               │
 ╰────────────────────────────────────────────────────────────────────────────────────────╯
 
 ```
@@ -437,7 +438,7 @@ Add reactions to messages:
 ╭─ Arguments ────────────────────────────────────────────────────────────────────────────╮
 │   room        [ROOM]    Room ID or name                                                │
 │   handle      [HANDLE]  Message handle (m1, m2, etc.) to react to                      │
-│   emoji       [EMOJI]   Emoji reaction (e.g., 👍, ❤️, 😄)                               │
+│   emoji       [EMOJI]   Emoji reaction (e.g., 👍, ❤️, 😄)                              │
 ╰────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ──────────────────────────────────────────────────────────────────────────────╮
 │ --username  -u      TEXT  Matrix username (overrides MATRIX_USERNAME env var)          │
