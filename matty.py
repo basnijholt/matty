@@ -534,8 +534,20 @@ async def _get_rooms(client: AsyncClient) -> list[Room]:
 
 
 async def _find_room(client: AsyncClient, room_query: str) -> tuple[str, str] | None:
-    """Find room by ID, alias, or name. Returns (room_id, room_name) or None."""
-    # First, check if it's a room alias (starts with #)
+    """Find room by ID, alias, name, or number from `matty rooms`. Returns (room_id, room_name) or None."""
+    # Check if it's a numeric index (1-based, matching `matty rooms` output)
+    try:
+        idx = int(room_query)
+    except ValueError:
+        pass
+    else:
+        rooms = await _get_rooms(client)
+        if 1 <= idx <= len(rooms):
+            room = rooms[idx - 1]
+            return room.room_id, room.name
+        return None
+
+    # Check if it's a room alias (starts with #)
     if room_query.startswith("#"):
         try:
             response = await client.room_resolve_alias(room_query)
@@ -592,9 +604,19 @@ def _assign_message_handles(messages: list[Message]) -> list[Message]:
 
 
 async def _get_messages(client: AsyncClient, room_id: str, limit: int = 20) -> list[Message]:
-    """Fetch messages from a room, including thread information, reactions, and edits."""
+    """Fetch messages from a room, including thread information, reactions, and edits.
+
+    Note: The Matrix API returns all timeline events, not just messages. Custom events
+    (like com.mindroom.agent.activity), state events, and other non-message events are
+    included in the limit, so you may get fewer actual messages than requested.
+    """
     try:
         response = await client.room_messages(room_id, limit=limit)
+
+        # Check if response is an error
+        if not hasattr(response, "chunk"):
+            console.print("[red]Error fetching messages[/red]")
+            return []
 
         messages = []
         thread_roots = set()  # Track which messages have threads
