@@ -197,8 +197,7 @@ async def test_execute_chat_command_applies_agent_prefix():
         patch("matty._get_chat_messages", AsyncMock(return_value=[_message("@alice:test", "hi")])),
         patch("matty._render_chat_messages"),
         patch("matty._print_chat_help"),
-        patch("matty._wait_for_thread_reply", AsyncMock(return_value=None)),
-        patch("matty._wait_for_new_messages", AsyncMock()),
+        patch("matty._wait_for_new_messages", AsyncMock(return_value=False)),
         patch(
             "matty._send_message_with_event_id", AsyncMock(return_value=(True, "$mine"))
         ) as mock_send,
@@ -226,7 +225,7 @@ async def test_execute_chat_command_uses_thread_root():
         patch("matty._get_chat_messages", AsyncMock(return_value=[_message("@alice:test", "hi")])),
         patch("matty._render_chat_messages"),
         patch("matty._print_chat_help"),
-        patch("matty._wait_for_new_messages", AsyncMock()),
+        patch("matty._wait_for_new_messages", AsyncMock(return_value=False)),
         patch(
             "matty._send_message_with_event_id", AsyncMock(return_value=(True, "$mine"))
         ) as mock_send,
@@ -258,12 +257,7 @@ async def test_execute_chat_command_auto_follows_thread_reply():
         patch("matty._render_chat_messages"),
         patch("matty._print_chat_help"),
         patch("matty._send_message_with_event_id", AsyncMock(return_value=(True, "$newroot"))),
-        patch(
-            "matty._wait_for_thread_reply",
-            AsyncMock(
-                return_value=_message("@mindroom_general:test", "pong", thread_root_id="$newroot")
-            ),
-        ),
+        patch("matty._wait_for_new_messages", AsyncMock(return_value=True)),
         patch("matty._get_or_create_id", return_value=7),
         patch("matty.asyncio.to_thread", AsyncMock(side_effect=["hello", "/quit"])),
     ):

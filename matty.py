@@ -1382,7 +1382,7 @@ def _print_chat_help() -> None:
 [bold]/reply <mX> <text>[/bold]   Reply to a message handle
 [bold]/react <mX> <emoji>[/bold]  React to a message handle
 [bold]/edit <mX> <text>[/bold]    Edit one of your messages
-[bold]/redact <mX> [reason][/bold] Delete/redact a message
+[bold]/redact <mX> <reason?>[/bold] Delete/redact a message
 [bold]/quit[/bold]                Exit interactive chat
 """.strip()
     console.print(Panel(commands, title="Matty Chat Commands", expand=False))
@@ -1463,43 +1463,34 @@ async def _wait_for_new_messages(
     client: AsyncClient,
     session: ChatSessionState,
     known_event_ids: set[str],
-) -> None:
-    """Wait until new non-self messages appear or timeout is reached."""
+    sent_root_event_id: str | None = None,
+) -> bool:
+    """Wait for new non-self messages and optionally detect thread replies.
+
+    Returns:
+        True when a new thread reply to sent_root_event_id is detected.
+        False for normal wake-up or timeout.
+    """
     if session.wait_timeout <= 0:
-        return
-
-    deadline = time.monotonic() + session.wait_timeout
-    with console.status("[dim]Waiting for new messages...[/dim]", spinner="dots"):
-        while time.monotonic() < deadline:
-            messages = await _get_chat_messages(client, session)
-            new_event_ids = _collect_event_ids(messages) - known_event_ids
-            if any(
-                msg.event_id in new_event_ids and msg.sender != session.self_user_id
-                for msg in messages
-            ):
-                return
-            await asyncio.sleep(session.poll_interval)
-
-
-async def _wait_for_thread_reply(
-    client: AsyncClient,
-    session: ChatSessionState,
-    root_event_id: str,
-) -> Message | None:
-    """Wait for the first non-self reply in a newly created thread."""
-    if session.wait_timeout <= 0:
-        return None
+        return False
 
     deadline = time.monotonic() + session.wait_timeout
     limit = max(session.history_limit * 2, 50)
-    with console.status("[dim]Waiting for thread reply...[/dim]", spinner="dots"):
+    with console.status("[dim]Waiting for new messages...[/dim]", spinner="dots"):
         while time.monotonic() < deadline:
-            messages = await _get_messages(client, session.room_id, limit)
+            if session.thread_id is None:
+                messages = await _get_messages(client, session.room_id, limit)
+            else:
+                messages = await _get_chat_messages(client, session)
+            new_event_ids = _collect_event_ids(messages) - known_event_ids
             for msg in messages:
-                if msg.thread_root_id == root_event_id and msg.sender != session.self_user_id:
-                    return msg
+                if msg.event_id not in new_event_ids:
+                    continue
+                if msg.sender == session.self_user_id:
+                    continue
+                return bool(sent_root_event_id and msg.thread_root_id == sent_root_event_id)
             await asyncio.sleep(session.poll_interval)
-    return None
+    return False
 
 
 async def _show_chat_threads(client: AsyncClient, session: ChatSessionState) -> None:
@@ -1627,7 +1618,7 @@ async def _chat_action_redact(
     client: AsyncClient,
 ) -> None:
     if not args:
-        console.print("[red]Usage: /redact <mX> [reason][/red]")
+        console.print("[red]Usage: /redact <mX> <reason?>[/red]")
         return
 
     handle = args[0]
@@ -1820,15 +1811,18 @@ async def _execute_chat_command(
             if event_id:
                 known_event_ids.add(event_id)
 
-            if session.thread_id is None and event_id:
-                reply = await _wait_for_thread_reply(client, session, event_id)
-                if reply is not None:
-                    session.thread_id = event_id
-                    thread_handle = _get_or_create_id(event_id)
-                    console.print(f"[green]Following new agent thread t{thread_handle}[/green]")
-                    continue
-
-            await _wait_for_new_messages(client, session, known_event_ids)
+            sent_root_event_id = event_id if session.thread_id is None else None
+            followed_new_thread = await _wait_for_new_messages(
+                client=client,
+                session=session,
+                known_event_ids=known_event_ids,
+                sent_root_event_id=sent_root_event_id,
+            )
+            if followed_new_thread and event_id:
+                session.thread_id = event_id
+                thread_handle = _get_or_create_id(event_id)
+                console.print(f"[green]Following new agent thread t{thread_handle}[/green]")
+                continue
 
 
 # =============================================================================
