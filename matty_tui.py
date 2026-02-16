@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
@@ -14,8 +14,8 @@ from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import (
+    AnyContainer,
     ConditionalContainer,
-    Float,
     FloatContainer,
     HSplit,
     VSplit,
@@ -29,6 +29,8 @@ from prompt_toolkit.widgets import Frame
 import matty
 
 if TYPE_CHECKING:
+    from collections.abc import Coroutine
+
     from nio import AsyncClient
     from prompt_toolkit.key_binding import KeyPressEvent
 
@@ -54,6 +56,8 @@ class TUIState:
     username: str | None = None
     poll_task: asyncio.Task[None] | None = None
     app: Application[None] | None = None
+    focusable_windows: list[AnyContainer] = field(default_factory=list)
+    thread_window: Window | None = None
     _background_tasks: list[asyncio.Task[None]] = field(default_factory=list)
 
 
@@ -167,18 +171,16 @@ def _build_layout(state: TUIState, input_buffer: Buffer) -> Layout:
         filter=Condition(lambda: state.show_threads),
     )
 
-    left_pane = HSplit(
-        [
-            room_pane,
-            thread_pane,
-        ]
-    )
-
     input_window = Window(
         content=BufferControl(buffer=input_buffer),
         height=1,
     )
     input_pane = Frame(input_window, title="> Type a message... (@mention for agents)")
+
+    # Track focusable windows: rooms, messages, input
+    # thread_body is stored separately for dynamic focus cycling
+    state.focusable_windows = [room_body, message_body, input_window]
+    state.thread_window = thread_body
 
     status_bar = Window(
         content=FormattedTextControl(
@@ -192,6 +194,13 @@ def _build_layout(state: TUIState, input_buffer: Buffer) -> Layout:
         height=1,
     )
 
+    left_pane = HSplit(
+        [
+            room_pane,
+            thread_pane,
+        ]
+    )
+
     body = VSplit(
         [
             left_pane,
@@ -201,9 +210,7 @@ def _build_layout(state: TUIState, input_buffer: Buffer) -> Layout:
 
     root = FloatContainer(
         content=HSplit([header, body, status_bar]),
-        floats=[
-            Float(content=Window(width=0, height=0), transparent=True),
-        ],
+        floats=[],
     )
 
     return Layout(root, focused_element=input_window)
@@ -214,7 +221,7 @@ def _build_layout(state: TUIState, input_buffer: Buffer) -> Layout:
 # =============================================================================
 
 
-def _fire_and_forget(state: TUIState, coro: asyncio.coroutines) -> None:  # type: ignore[type-arg]
+def _fire_and_forget(state: TUIState, coro: Coroutine[Any, Any, None]) -> None:
     """Schedule a coroutine as a background task and track it."""
     task = asyncio.ensure_future(coro)
     state._background_tasks.append(task)  # noqa: SLF001
@@ -255,9 +262,11 @@ def _build_key_bindings(state: TUIState, input_buffer: Buffer) -> KeyBindings:
     @kb.add("tab")
     def _cycle_focus(event: KeyPressEvent) -> None:
         """Cycle focus between panes (rooms -> messages -> input -> threads)."""
-        max_index = 3 if state.show_threads else 2
-        state.focus_index = (state.focus_index + 1) % (max_index + 1)
-        event.app.invalidate()
+        focusable = list(state.focusable_windows)
+        if state.show_threads and state.thread_window:
+            focusable.append(state.thread_window)
+        state.focus_index = (state.focus_index + 1) % len(focusable)
+        event.app.layout.focus(focusable[state.focus_index])
 
     @kb.add("up")
     def _room_up(event: KeyPressEvent) -> None:
@@ -307,6 +316,7 @@ async def _init_client(state: TUIState, username: str | None, password: str | No
     client = await matty._create_client(config)  # noqa: SLF001
     if not await matty._login(client, config.password):  # noqa: SLF001
         state.status_message = "Error: Login failed"
+        await client.close()
         return False
 
     state.client = client
@@ -392,7 +402,8 @@ async def _poll_messages(state: TUIState, interval: float = 10.0) -> None:
     while True:
         await asyncio.sleep(interval)
         if state.selected_room_id:
-            await _load_messages(state)
+            with contextlib.suppress(Exception):
+                await _load_messages(state)
 
 
 # =============================================================================

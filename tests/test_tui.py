@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -23,6 +24,7 @@ from matty_tui import (
     _load_messages,
     _load_rooms,
     _load_threads,
+    _poll_messages,
     _select_room,
     _send_message,
 )
@@ -327,6 +329,8 @@ class TestInitClient:
             result = await _init_client(state, "user", "pass")
         assert result is False
         assert "failed" in state.status_message.lower()
+        # Client should be closed on login failure
+        mock_client.close.assert_awaited_once()
 
 
 class TestLoadRooms:
@@ -532,3 +536,38 @@ class TestRunTui:
         assert "&lt;" in result
         assert "&amp;" in result
         assert "&gt;" in result
+
+    def test_layout_stores_focusable_windows(self, state: TUIState) -> None:
+        """Test that _build_layout populates focusable_windows on state."""
+        buf = Buffer(name="input")
+        _build_layout(state, buf)
+        assert len(state.focusable_windows) == 3
+        assert state.thread_window is not None
+
+
+class TestPollMessages:
+    @pytest.mark.asyncio
+    async def test_poll_survives_errors(self, state: TUIState) -> None:
+        """Test that _poll_messages keeps running after errors."""
+        state.client = AsyncMock()
+        state.selected_room_id = "!room1:test.org"
+        state.selected_room_name = "Lobby"
+        call_count = 0
+
+        async def _failing_get_messages(*_args: object, **_kwargs: object) -> list[Message]:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                msg = "Network error"
+                raise ConnectionError(msg)
+            return []
+
+        with patch("matty_tui.matty._get_messages", side_effect=_failing_get_messages):
+            task = asyncio.create_task(_poll_messages(state, interval=0.01))
+            await asyncio.sleep(0.05)
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+        # Should have been called more than once (survived the error)
+        assert call_count >= 2
