@@ -253,11 +253,6 @@ async def refresh_state(state: TuiState) -> None:
                     min(state.current_thread_index, len(state.threads) - 1),
                 )
 
-            if state.active_thread_root_id and not any(
-                thread.event_id == state.active_thread_root_id for thread in state.threads
-            ):
-                state.active_thread_root_id = None
-
             if state.active_thread_root_id:
                 state.messages = await _get_thread_messages(
                     state.client,

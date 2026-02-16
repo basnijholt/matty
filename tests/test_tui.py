@@ -241,6 +241,52 @@ async def test_refresh_state_uses_active_thread() -> None:
 
 
 @pytest.mark.asyncio
+async def test_refresh_state_keeps_active_thread_when_not_in_sidebar_window() -> None:
+    """Thread view remains active even if sidebar thread list doesn't include active root."""
+    room = _sample_room("Lobby", "!lobby:matrix.org")
+    visible_sidebar_thread = _sample_message(
+        sender="@agent:matrix.org",
+        content="Newer thread",
+        room_id=room.room_id,
+        event_id="$thread-new",
+        thread_handle="t100",
+        is_thread_root=True,
+    )
+    thread_reply = _sample_message(
+        sender="@me:matrix.org",
+        content="Reply in older thread",
+        room_id=room.room_id,
+        event_id="$reply-old",
+    )
+
+    state = TuiState(
+        client=MagicMock(),
+        username="@me:matrix.org",
+        active_thread_root_id="$thread-old",
+    )
+
+    with (
+        patch("matty_tui._get_rooms", new=AsyncMock(return_value=[room])),
+        patch("matty_tui._get_threads", new=AsyncMock(return_value=[visible_sidebar_thread])),
+        patch(
+            "matty_tui._get_thread_messages", new=AsyncMock(return_value=[thread_reply])
+        ) as mock_get_thread_messages,
+        patch("matty_tui._get_messages", new=AsyncMock(return_value=[])) as mock_get_messages,
+    ):
+        await refresh_state(state)
+
+    assert state.active_thread_root_id == "$thread-old"
+    mock_get_thread_messages.assert_awaited_once_with(
+        state.client,
+        room.room_id,
+        "$thread-old",
+        limit=state.thread_limit,
+    )
+    mock_get_messages.assert_not_awaited()
+    assert "thread view" in state.status
+
+
+@pytest.mark.asyncio
 async def test_send_current_message_uses_thread_root() -> None:
     """Send operation keeps active thread context."""
     room = _sample_room("Lobby", "!lobby:matrix.org")
