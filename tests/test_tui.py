@@ -140,6 +140,19 @@ class TestEscape:
     def test_escape_all_special(self) -> None:
         assert _escape("a<b&c>d") == "a&lt;b&amp;c&gt;d"
 
+    def test_escape_strips_xml_invalid_chars(self) -> None:
+        # Control characters (except \t, \n, \r) are invalid in XML 1.0
+        assert _escape("hello\x00world") == "helloworld"
+        assert _escape("hello\x01world") == "helloworld"
+        assert _escape("a\x0b\x0c\x0e\x1fb") == "ab"
+        # \t, \n, \r are valid and should be preserved
+        assert _escape("a\t\n\rb") == "a\t\n\rb"
+
+    def test_escape_strips_surrogate_range(self) -> None:
+        # \uFFFE and \uFFFF are invalid in XML 1.0
+        assert _escape("hello\ufffeworld") == "helloworld"
+        assert _escape("hello\uffffworld") == "helloworld"
+
 
 # =============================================================================
 # Formatting tests

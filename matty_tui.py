@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -129,8 +130,14 @@ def _format_thread_list(state: TUIState) -> str:
     return "\n".join(lines)
 
 
+# Matches characters that are invalid in XML 1.0.
+# Valid: #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF]
+_INVALID_XML_CHARS = re.compile(r"[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFD\U00010000-\U0010FFFF]")
+
+
 def _escape(text: str) -> str:
     """Escape text for HTML formatted text in prompt_toolkit."""
+    text = _INVALID_XML_CHARS.sub("", text)
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
