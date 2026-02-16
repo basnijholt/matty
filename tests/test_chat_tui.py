@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -13,12 +14,16 @@ from matty import (
     ChatSessionState,
     Message,
     _apply_agent_prefix,
+    _chat_completion_candidates,
+    _chat_messages_signature,
     _chat_scope_label,
     _execute_chat_action_command,
     _execute_chat_command,
     _execute_chat_slash_command,
+    _get_chat_messages,
     _normalize_agent_mention,
     _parse_chat_command,
+    _read_chat_input_with_live_updates,
     _send_message_with_event_id,
     _wait_for_new_messages,
     app,
@@ -99,6 +104,33 @@ def test_chat_scope_label_uses_thread_mapping(monkeypatch):
     assert _chat_scope_label(None) == "main timeline"
 
 
+def test_chat_completion_candidates_show_slash_menu():
+    values = {value for value, _display in _chat_completion_candidates("/", [])}
+    assert "/help" in values
+    assert "/thread " in values
+    assert "/reply " in values
+
+
+def test_chat_completion_candidates_include_known_handles():
+    root = _message("@alice:test", "root", event_id="$root")
+    root.thread_handle = "t7"
+    root.handle = "m9"
+    reply = _message("@alice:test", "reply", event_id="$reply", thread_root_id="$root")
+    reply.thread_handle = "t7"
+    reply.handle = "m10"
+
+    thread_values = {
+        value for value, _display in _chat_completion_candidates("/thread t", [root, reply])
+    }
+    action_values = {
+        value for value, _display in _chat_completion_candidates("/reply m", [root, reply])
+    }
+
+    assert "/thread t7" in thread_values
+    assert "/reply m9 " in action_values
+    assert "/reply m10 " in action_values
+
+
 @pytest.mark.asyncio
 async def test_send_message_with_event_id_success():
     client = MagicMock()
@@ -150,6 +182,58 @@ async def test_wait_for_new_messages_ignores_old_events_outside_known_window(ses
 
     assert result is True
     assert mock_get_messages.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_get_chat_messages_uses_large_limit_for_thread_mode(session):
+    session.thread_id = "$thread123"
+    session.history_limit = 20
+
+    with patch("matty._get_thread_messages", AsyncMock(return_value=[])) as mock_thread_messages:
+        await _get_chat_messages(MagicMock(), session)
+
+    assert mock_thread_messages.await_count == 1
+    assert mock_thread_messages.await_args.args[3] == 400
+
+
+def test_chat_messages_signature_detects_content_changes():
+    original = _message("@mindroom:test", "Thinking...", event_id="$evt")
+    updated = _message("@mindroom:test", "Done", event_id="$evt")
+
+    before = _chat_messages_signature([original], history_limit=20)
+    after = _chat_messages_signature([updated], history_limit=20)
+
+    assert before != after
+
+
+@pytest.mark.asyncio
+async def test_read_chat_input_with_live_updates_redraws_on_edit(session):
+    session.poll_interval = 0.01
+    initial = _message("@mindroom:test", "Thinking...", event_id="$evt")
+    edited = _message("@mindroom:test", "Done", event_id="$evt")
+    messages_holder = {"messages": [initial]}
+
+    async def delayed_prompt(*_args, **_kwargs):
+        await asyncio.sleep(0.03)
+        return "/quit"
+
+    with (
+        patch("matty._prompt_chat_input", AsyncMock(side_effect=delayed_prompt)),
+        patch("matty._get_chat_messages", AsyncMock(side_effect=[[edited], [edited]])),
+        patch("matty._render_chat_messages") as mock_render,
+    ):
+        user_input = await _read_chat_input_with_live_updates(
+            client=MagicMock(),
+            session=session,
+            prompt_session=MagicMock(),
+            completer=MagicMock(),
+            initial_messages=[initial],
+            messages_holder=messages_holder,
+        )
+
+    assert user_input == "/quit"
+    assert mock_render.call_count == 1
+    assert messages_holder["messages"] == [edited]
 
 
 @pytest.mark.asyncio
@@ -226,12 +310,13 @@ async def test_execute_chat_command_applies_agent_prefix():
         patch("matty._with_client_in_room", fake_room_context),
         patch("matty._get_chat_messages", AsyncMock(return_value=[_message("@alice:test", "hi")])),
         patch("matty._render_chat_messages"),
-        patch("matty._print_chat_help"),
         patch("matty._wait_for_new_messages", AsyncMock(return_value=False)),
         patch(
             "matty._send_message_with_event_id", AsyncMock(return_value=(True, "$mine"))
         ) as mock_send,
-        patch("matty.asyncio.to_thread", AsyncMock(side_effect=["hello", "/quit"])),
+        patch(
+            "matty._read_chat_input_with_live_updates", AsyncMock(side_effect=["hello", "/quit"])
+        ),
     ):
         await _execute_chat_command(room="Lobby", agent="mindroom_general", wait=0)
 
@@ -254,12 +339,13 @@ async def test_execute_chat_command_uses_thread_root():
         patch("matty._resolve_thread_id", return_value=("$thread1", None)),
         patch("matty._get_chat_messages", AsyncMock(return_value=[_message("@alice:test", "hi")])),
         patch("matty._render_chat_messages"),
-        patch("matty._print_chat_help"),
         patch("matty._wait_for_new_messages", AsyncMock(return_value=False)),
         patch(
             "matty._send_message_with_event_id", AsyncMock(return_value=(True, "$mine"))
         ) as mock_send,
-        patch("matty.asyncio.to_thread", AsyncMock(side_effect=["hello", "/quit"])),
+        patch(
+            "matty._read_chat_input_with_live_updates", AsyncMock(side_effect=["hello", "/quit"])
+        ),
     ):
         await _execute_chat_command(room="Lobby", thread="t1", wait=0)
 
@@ -285,17 +371,44 @@ async def test_execute_chat_command_auto_follows_thread_reply():
         patch("matty._with_client_in_room", fake_room_context),
         patch("matty._get_chat_messages", get_chat_messages),
         patch("matty._render_chat_messages"),
-        patch("matty._print_chat_help"),
         patch("matty._send_message_with_event_id", AsyncMock(return_value=(True, "$newroot"))),
         patch("matty._wait_for_new_messages", AsyncMock(return_value=True)),
         patch("matty._get_or_create_id", return_value=7),
-        patch("matty.asyncio.to_thread", AsyncMock(side_effect=["hello", "/quit"])),
+        patch(
+            "matty._read_chat_input_with_live_updates", AsyncMock(side_effect=["hello", "/quit"])
+        ),
     ):
         await _execute_chat_command(room="Lobby")
 
     assert len(get_chat_messages.call_args_list) >= 2
     second_session = get_chat_messages.call_args_list[1].args[1]
     assert second_session.thread_id == "$newroot"
+
+
+@pytest.mark.asyncio
+async def test_execute_chat_command_help_stays_visible_until_next_action():
+    client = MagicMock()
+    client.user_id = "@me:test"
+    client.rooms = {"!room:test": MagicMock(users={})}
+
+    @asynccontextmanager
+    async def fake_room_context(*_args, **_kwargs):
+        yield client, "!room:test", "Lobby"
+
+    with (
+        patch("matty._with_client_in_room", fake_room_context),
+        patch("matty._get_chat_messages", AsyncMock(return_value=[_message("@alice:test", "hi")])),
+        patch("matty._render_chat_messages") as mock_render,
+        patch(
+            "matty._read_chat_input_with_live_updates",
+            AsyncMock(side_effect=["/help", "/quit"]),
+        ),
+    ):
+        await _execute_chat_command(room="Lobby")
+
+    assert mock_render.call_count >= 2
+    assert mock_render.call_args_list[0].kwargs.get("show_help") is False
+    assert mock_render.call_args_list[1].kwargs.get("show_help") is True
 
 
 def test_cli_chat_command_invokes_asyncio_run():

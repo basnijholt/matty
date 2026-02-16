@@ -8,7 +8,8 @@ import re
 import shlex
 import sys
 import time
-from contextlib import asynccontextmanager
+from collections.abc import Callable, Iterator
+from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import Enum
@@ -24,6 +25,10 @@ from nio import (
     RedactedEvent,
     RoomMessageText,
 )
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import CompleteEvent, Completer, Completion
+from prompt_toolkit.document import Document
+from prompt_toolkit.patch_stdout import patch_stdout
 from pydantic import BaseModel, Field, field_validator
 from rich.console import Console
 from rich.panel import Panel
@@ -1347,6 +1352,35 @@ async def _with_client_in_room(
 # =============================================================================
 
 
+_CHAT_HELP_TEXT = """
+[bold]/help[/bold]                Show this help
+[bold]/refresh[/bold]             Refresh messages
+[bold]/threads[/bold]             List thread starters in this room
+[bold]/thread <id>[/bold]         Switch to a thread (e.g. /thread t1)
+[bold]/main[/bold]                Return to main timeline
+[bold]/history <n>[/bold]         Set visible message count
+[bold]/reply <mX> <text>[/bold]   Reply to a message handle
+[bold]/react <mX> <emoji>[/bold]  React to a message handle
+[bold]/edit <mX> <text>[/bold]    Edit one of your messages
+[bold]/redact <mX> <reason?>[/bold] Delete/redact a message
+[bold]/quit[/bold]                Exit interactive chat
+""".strip()
+
+_CHAT_BASE_COMPLETIONS: tuple[tuple[str, str], ...] = (
+    ("/help", "/help"),
+    ("/refresh", "/refresh"),
+    ("/threads", "/threads"),
+    ("/thread ", "/thread <id>"),
+    ("/main", "/main"),
+    ("/history ", "/history <n>"),
+    ("/reply ", "/reply <mX> <text>"),
+    ("/react ", "/react <mX> <emoji>"),
+    ("/edit ", "/edit <mX> <text>"),
+    ("/redact ", "/redact <mX> <reason?>"),
+    ("/quit", "/quit"),
+)
+
+
 def _normalize_agent_mention(agent: str | None) -> str | None:
     """Normalize agent mention input to an @mention."""
     if not agent:
@@ -1379,25 +1413,95 @@ def _chat_scope_label(thread_id: str | None) -> str:
 def _chat_prompt_label(session: ChatSessionState) -> str:
     """Prompt label for interactive chat input."""
     scope = "main" if session.thread_id is None else _chat_scope_label(session.thread_id)
-    return f"[bold green]you[/bold green] [dim]({scope})[/dim] > "
+    return f"you ({scope}) > "
 
 
-def _print_chat_help() -> None:
-    """Print slash commands for interactive chat."""
-    commands = """
-[bold]/help[/bold]                Show this help
-[bold]/refresh[/bold]             Refresh messages
-[bold]/threads[/bold]             List thread starters in this room
-[bold]/thread <id>[/bold]         Switch to a thread (e.g. /thread t1)
-[bold]/main[/bold]                Return to main timeline
-[bold]/history <n>[/bold]         Set visible message count
-[bold]/reply <mX> <text>[/bold]   Reply to a message handle
-[bold]/react <mX> <emoji>[/bold]  React to a message handle
-[bold]/edit <mX> <text>[/bold]    Edit one of your messages
-[bold]/redact <mX> <reason?>[/bold] Delete/redact a message
-[bold]/quit[/bold]                Exit interactive chat
-""".strip()
-    console.print(Panel(commands, title="Matty Chat Commands", expand=False))
+def _chat_help_panel() -> Panel:
+    """Panel used for chat slash-command help."""
+    return Panel(_CHAT_HELP_TEXT, title="Matty Chat Commands", expand=False)
+
+
+def _parse_handle_sort_key(handle: str) -> tuple[int, str]:
+    """Sort t10 after t2 and keep non-numeric handles stable."""
+    suffix = handle[1:]
+    if suffix.isdigit():
+        return int(suffix), handle
+    return sys.maxsize, handle
+
+
+def _sorted_handles(handles: set[str]) -> list[str]:
+    """Sort m/t handles by numeric suffix when available."""
+    return sorted(handles, key=_parse_handle_sort_key)
+
+
+def _chat_completion_candidates(
+    query: str,
+    messages: list[Message],
+) -> list[tuple[str, str]]:
+    """Build slash-command completion candidates for the current prompt query."""
+    lowered_query = query.lower()
+    if " " not in query:
+        return [
+            (value, display)
+            for value, display in _CHAT_BASE_COMPLETIONS
+            if value.startswith(lowered_query)
+        ]
+
+    command, _, _rest = lowered_query.partition(" ")
+    if command == "/thread":
+        known_threads = _sorted_handles(
+            {
+                msg.thread_handle
+                for msg in messages
+                if msg.thread_handle is not None and msg.thread_handle.startswith("t")
+            }
+        )
+        candidates = [
+            ("/thread main", "/thread main"),
+            *[(f"/thread {tid}", f"/thread {tid}") for tid in known_threads],
+        ]
+    elif command in {"/reply", "/react", "/edit", "/redact"}:
+        known_handles = _sorted_handles(
+            {
+                msg.handle
+                for msg in messages
+                if msg.handle is not None and msg.handle.startswith("m")
+            }
+        )
+        candidates = [(f"{command} {handle} ", f"{command} {handle}") for handle in known_handles]
+    elif command == "/history":
+        candidates = [
+            (f"/history {value}", f"/history {value}") for value in ("10", "20", "40", "80", "120")
+        ]
+    else:
+        candidates = []
+
+    return [(value, display) for value, display in candidates if value.startswith(lowered_query)]
+
+
+class _ChatSlashCompleter(Completer):
+    """Prompt-toolkit completer for chat slash commands."""
+
+    def __init__(
+        self,
+        messages_provider: Callable[[], list[Message]],
+    ) -> None:
+        self._messages_provider = messages_provider
+
+    def get_completions(
+        self, document: Document, complete_event: CompleteEvent
+    ) -> Iterator[Completion]:
+        del complete_event
+        query = document.text_before_cursor.lstrip()
+        if not query.startswith("/"):
+            return
+
+        for value, display in _chat_completion_candidates(query, self._messages_provider()):
+            yield Completion(
+                value,
+                start_position=-len(query),
+                display=display,
+            )
 
 
 def _parse_chat_command(command_text: str) -> tuple[str, list[str], str | None]:
@@ -1420,13 +1524,41 @@ async def _get_chat_messages(client: AsyncClient, session: ChatSessionState) -> 
     """Get messages for the current chat scope (timeline or thread)."""
     limit = max(session.history_limit, 20)
     if session.thread_id is not None:
-        return await _get_thread_messages(client, session.room_id, session.thread_id, limit)
+        # room_messages mixes all room events, so thread mode needs a wider
+        # fetch window to reliably include m.replace streaming edits.
+        thread_limit = max(session.history_limit * 8, 400)
+        return await _get_thread_messages(client, session.room_id, session.thread_id, thread_limit)
     return await _get_messages(client, session.room_id, limit)
 
 
 def _collect_event_ids(messages: list[Message]) -> set[str]:
     """Collect non-empty event IDs from a message list."""
     return {msg.event_id for msg in messages if msg.event_id}
+
+
+def _chat_messages_signature(
+    messages: list[Message], history_limit: int
+) -> tuple[tuple[object, ...], ...]:
+    """Create a stable signature for the visible transcript slice."""
+    visible = messages[-history_limit:]
+    signature_rows: list[tuple[object, ...]] = []
+    for msg in visible:
+        reactions = tuple(
+            (emoji, tuple(sorted(users)))
+            for emoji, users in sorted(msg.reactions.items(), key=lambda item: item[0])
+        )
+        signature_rows.append(
+            (
+                msg.event_id,
+                msg.sender,
+                msg.content,
+                msg.timestamp,
+                msg.handle,
+                msg.thread_handle,
+                reactions,
+            )
+        )
+    return tuple(signature_rows)
 
 
 def _format_chat_sender(sender: str, self_user_id: str | None) -> str:
@@ -1438,7 +1570,9 @@ def _format_chat_sender(sender: str, self_user_id: str | None) -> str:
     return f"[cyan]{sender}[/cyan]"
 
 
-def _render_chat_messages(messages: list[Message], session: ChatSessionState) -> None:
+def _render_chat_messages(
+    messages: list[Message], session: ChatSessionState, show_help: bool = False
+) -> None:
     """Render chat transcript in a compact TUI-style layout."""
     scope_label = _chat_scope_label(session.thread_id)
     header = f"[bold cyan]{session.room_name}[/bold cyan] • [yellow]{scope_label}[/yellow]"
@@ -1468,7 +1602,59 @@ def _render_chat_messages(messages: list[Message], session: ChatSessionState) ->
                 )
                 console.print(f"    [dim]Reactions: {reaction_str}[/dim]")
 
+    if show_help:
+        console.print(_chat_help_panel())
     console.print("[dim]Type a message or /help for commands[/dim]")
+
+
+async def _prompt_chat_input(
+    prompt_session: PromptSession[str],
+    session: ChatSessionState,
+    completer: Completer,
+) -> str:
+    """Read one chat input line using prompt-toolkit."""
+    with patch_stdout():
+        return await prompt_session.prompt_async(
+            _chat_prompt_label(session),
+            completer=completer,
+            complete_while_typing=True,
+        )
+
+
+async def _read_chat_input_with_live_updates(
+    client: AsyncClient,
+    session: ChatSessionState,
+    prompt_session: PromptSession[str],
+    completer: Completer,
+    initial_messages: list[Message],
+    messages_holder: dict[str, list[Message]],
+    show_help: bool = False,
+) -> str:
+    """Read input while polling for message updates and redrawing on transcript changes."""
+    rendered_messages = initial_messages
+    rendered_signature = _chat_messages_signature(rendered_messages, session.history_limit)
+    input_task = asyncio.create_task(_prompt_chat_input(prompt_session, session, completer))
+
+    try:
+        while True:
+            done, _pending = await asyncio.wait({input_task}, timeout=session.poll_interval)
+            if input_task in done:
+                return input_task.result()
+
+            latest_messages = await _get_chat_messages(client, session)
+            messages_holder["messages"] = latest_messages
+            latest_signature = _chat_messages_signature(latest_messages, session.history_limit)
+            if latest_signature == rendered_signature:
+                continue
+
+            rendered_messages = latest_messages
+            rendered_signature = latest_signature
+            _render_chat_messages(rendered_messages, session, show_help=show_help)
+    finally:
+        if not input_task.done():
+            input_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await input_task
 
 
 async def _wait_for_new_messages(
@@ -1734,9 +1920,7 @@ async def _execute_chat_slash_command(
     if command in {"quit", "exit", "q"}:
         return False
 
-    if command in {"help", "h", "?"}:
-        _print_chat_help()
-    elif command in {"refresh", "r"}:
+    if command in {"help", "h", "?"} or command in {"refresh", "r"}:
         pass
     elif command == "threads":
         await _show_chat_threads(client, session)
@@ -1796,14 +1980,26 @@ async def _execute_chat_command(
             agent_mention=_normalize_agent_mention(agent),
         )
 
-        _print_chat_help()
+        messages_holder: dict[str, list[Message]] = {"messages": []}
+        completer = _ChatSlashCompleter(lambda: messages_holder["messages"])
+        prompt_session: PromptSession[str] = PromptSession()
+        show_help_panel = False
 
         while True:
             messages = await _get_chat_messages(client, session)
-            _render_chat_messages(messages, session)
+            messages_holder["messages"] = messages
+            _render_chat_messages(messages, session, show_help=show_help_panel)
 
             try:
-                user_input = await asyncio.to_thread(console.input, _chat_prompt_label(session))
+                user_input = await _read_chat_input_with_live_updates(
+                    client=client,
+                    session=session,
+                    prompt_session=prompt_session,
+                    completer=completer,
+                    initial_messages=messages,
+                    messages_holder=messages_holder,
+                    show_help=show_help_panel,
+                )
             except (EOFError, KeyboardInterrupt):
                 console.print("\n[dim]Chat session ended.[/dim]")
                 return
@@ -1813,11 +2009,14 @@ async def _execute_chat_command(
                 continue
 
             if text.startswith("/"):
+                command, _args, error = _parse_chat_command(text)
                 should_continue = await _execute_chat_slash_command(text, session, client)
                 if not should_continue:
                     return
+                show_help_panel = error is None and command in {"help", "h", "?"}
                 continue
 
+            show_help_panel = False
             outgoing_message = _apply_agent_prefix(text, session.agent_mention)
             known_event_ids = _collect_event_ids(messages)
 
