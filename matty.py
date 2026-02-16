@@ -534,8 +534,20 @@ async def _get_rooms(client: AsyncClient) -> list[Room]:
 
 
 async def _find_room(client: AsyncClient, room_query: str) -> tuple[str, str] | None:
-    """Find room by ID, alias, or name. Returns (room_id, room_name) or None."""
-    # First, check if it's a room alias (starts with #)
+    """Find room by ID, alias, name, or number from `matty rooms`. Returns (room_id, room_name) or None."""
+    # Check if it's a numeric index (1-based, matching `matty rooms` output)
+    try:
+        idx = int(room_query)
+    except ValueError:
+        pass
+    else:
+        rooms = await _get_rooms(client)
+        if 1 <= idx <= len(rooms):
+            room = rooms[idx - 1]
+            return room.room_id, room.name
+        return None
+
+    # Check if it's a room alias (starts with #)
     if room_query.startswith("#"):
         try:
             response = await client.room_resolve_alias(room_query)

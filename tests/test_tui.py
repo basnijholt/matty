@@ -287,6 +287,46 @@ async def test_refresh_state_keeps_active_thread_when_not_in_sidebar_window() ->
 
 
 @pytest.mark.asyncio
+async def test_refresh_state_clears_active_thread_when_room_disappears() -> None:
+    """Active thread context is reset when refresh selects a different room."""
+    previous_room = _sample_room("Old Room", "!old:matrix.org")
+    current_room = _sample_room("New Room", "!new:matrix.org")
+    timeline_message = _sample_message(
+        sender="@agent:matrix.org",
+        content="Timeline message",
+        room_id=current_room.room_id,
+        event_id="$msg-new",
+    )
+
+    state = TuiState(
+        client=MagicMock(),
+        username="@me:matrix.org",
+        rooms=[previous_room],
+        current_room_index=0,
+        active_thread_root_id="$stale-thread",
+    )
+
+    with (
+        patch("matty_tui._get_rooms", new=AsyncMock(return_value=[current_room])),
+        patch("matty_tui._get_threads", new=AsyncMock(return_value=[])),
+        patch(
+            "matty_tui._get_messages", new=AsyncMock(return_value=[timeline_message])
+        ) as mock_get_messages,
+        patch(
+            "matty_tui._get_thread_messages", new=AsyncMock(return_value=[])
+        ) as mock_get_thread_messages,
+    ):
+        await refresh_state(state)
+
+    assert state.active_thread_root_id is None
+    mock_get_thread_messages.assert_not_awaited()
+    mock_get_messages.assert_awaited_once_with(
+        state.client, current_room.room_id, limit=state.message_limit
+    )
+    assert "thread view" not in state.status
+
+
+@pytest.mark.asyncio
 async def test_send_current_message_uses_thread_root() -> None:
     """Send operation keeps active thread context."""
     room = _sample_room("Lobby", "!lobby:matrix.org")
@@ -321,6 +361,8 @@ def test_build_tui_application_has_keybindings() -> None:
 
     assert isinstance(application, Application)
     assert state.invalidate is not None
+    assert application.layout.current_control.buffer.multiline() is False
+    assert application.layout.current_control.buffer.accept_handler is not None
 
     bindings = {
         tuple(getattr(key, "value", str(key)) for key in binding.keys)

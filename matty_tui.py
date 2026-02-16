@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from nio import AsyncClient
-from prompt_toolkit.application import Application
+from prompt_toolkit.application import Application, get_app
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.filters import has_focus
 from prompt_toolkit.key_binding import KeyBindings
@@ -238,6 +238,10 @@ async def refresh_state(state: TuiState) -> None:
                 _invalidate(state)
                 return
 
+            if previous_room_id and current_room.room_id != previous_room_id:
+                state.active_thread_root_id = None
+                state.current_thread_index = 0
+
             if state.show_threads:
                 state.threads = await _get_threads(
                     state.client,
@@ -319,7 +323,6 @@ def create_key_bindings(
     threads_window: Window,
     messages_window: Window,
     input_window: Window,
-    input_buffer: Buffer,
 ) -> KeyBindings:
     """Create global key bindings for the TUI."""
     key_bindings = KeyBindings()
@@ -391,12 +394,6 @@ def create_key_bindings(
         activate_selected_thread(state)
         event.app.create_background_task(refresh_state(state))
 
-    @key_bindings.add("enter", filter=has_focus(input_window))
-    def _send_input(event) -> None:
-        text = input_buffer.text
-        input_buffer.text = ""
-        event.app.create_background_task(send_current_message(state, text))
-
     return key_bindings
 
 
@@ -418,7 +415,11 @@ def build_tui_application(state: TuiState) -> Application[None]:
         wrap_lines=True,
     )
 
-    input_buffer = Buffer()
+    def _accept_input(buffer: Buffer) -> bool:
+        get_app().create_background_task(send_current_message(state, buffer.text))
+        return False
+
+    input_buffer = Buffer(multiline=False, accept_handler=_accept_input)
     input_control = BufferControl(
         buffer=input_buffer,
         focusable=True,
@@ -468,7 +469,6 @@ def build_tui_application(state: TuiState) -> Application[None]:
         threads_window=threads_window,
         messages_window=messages_window,
         input_window=input_window,
-        input_buffer=input_buffer,
     )
 
     application = Application(

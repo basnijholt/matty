@@ -124,6 +124,42 @@ class TestAsyncFunctions:
         assert result is None
 
     @pytest.mark.asyncio
+    async def test_find_room_by_number(self):
+        """Test finding a room by numeric index (matching `matty rooms` output)."""
+        client = MagicMock(spec=AsyncClient)
+
+        room1 = MagicMock(spec=MatrixRoom)
+        room1.room_id = "!room1:matrix.org"
+        room1.display_name = "Alpha"
+        room1.users = {"@user1:matrix.org": None}
+        room1.topic = None
+
+        room2 = MagicMock(spec=MatrixRoom)
+        room2.room_id = "!room2:matrix.org"
+        room2.display_name = "Beta"
+        room2.users = {"@user1:matrix.org": None}
+        room2.topic = None
+
+        client.rooms = {
+            "!room1:matrix.org": room1,
+            "!room2:matrix.org": room2,
+        }
+
+        # Test finding by number (1-based index)
+        result = await _find_room(client, "1")
+        assert result == ("!room1:matrix.org", "Alpha")
+
+        result = await _find_room(client, "2")
+        assert result == ("!room2:matrix.org", "Beta")
+
+        # Test out of range
+        result = await _find_room(client, "0")
+        assert result is None
+
+        result = await _find_room(client, "3")
+        assert result is None
+
+    @pytest.mark.asyncio
     async def test_find_room_by_alias(self):
         """Test finding a room by alias."""
         client = MagicMock(spec=AsyncClient)
