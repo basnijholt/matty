@@ -26,6 +26,7 @@ dependencies = [
     "pydantic-settings>=2.10.1",
     "python-dotenv>=1.1.1",
     "rich>=13.0.0",
+    "textual>=1.0.0",
     "typer>=0.16.1",
 ]
 
@@ -49,6 +50,7 @@ dev = [
     "markdown-code-runner>=2.3.0",
     "versioningit>=3.3.0",
     "pytest-sugar>=1.1.1",
+    "pytest-textual-snapshot>=1.0.0",
 ]
 
 [build-system]
@@ -62,12 +64,12 @@ source = "versioningit"
 packages = ["."]
 
 [tool.hatch.build]
-only-include = ["matty.py"]
+only-include = ["matty.py", "matty_tui.py", "matty_tui.tcss"]
 
 [tool.coverage.run]
 branch = true
 parallel = true
-source = ["matty"]
+source = ["matty", "matty_tui"]
 omit = [
     "tests/*",
     "test_*.py",

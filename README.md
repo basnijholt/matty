@@ -111,6 +111,7 @@ MATRIX_SSL_VERIFY=true  # Set to false for test servers
 │ edit          Edit a message using its handle. (alias: e)                              │
 │ redact        Delete/redact a message using its handle. (alias: del)                   │
 │ reactions     Show detailed reactions for a specific message. (alias: rxs)             │
+│ tui           Launch interactive TUI chat interface.                                   │
 ╰────────────────────────────────────────────────────────────────────────────────────────╯
 
 ```

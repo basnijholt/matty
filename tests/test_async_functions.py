@@ -41,8 +41,11 @@ class TestAsyncFunctions:
             ssl_verify=True,
         )
         client = await _create_client(config)
-        assert isinstance(client, AsyncClient)
-        assert client.homeserver == "https://matrix.org"
+        try:
+            assert isinstance(client, AsyncClient)
+            assert client.homeserver == "https://matrix.org"
+        finally:
+            await client.close()
 
     @pytest.mark.asyncio
     async def test_login_success(self):
