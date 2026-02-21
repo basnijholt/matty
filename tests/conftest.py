@@ -1,8 +1,11 @@
 """Pytest configuration and fixtures."""
 
 import asyncio
+from datetime import UTC, datetime
 
 import pytest
+
+from matty import Config, Message, Room
 
 
 @pytest.fixture(scope="session")
@@ -43,6 +46,48 @@ def env_setup(monkeypatch, tmp_path):
     monkeypatch.setattr("matty._state", None)
 
     yield
+
+
+@pytest.fixture
+def tui_config():
+    """Create a test Config for TUI tests."""
+    return Config(
+        homeserver="https://test.matrix.org",
+        username="test_user",
+        password="test_pass",
+    )
+
+
+@pytest.fixture
+def tui_rooms():
+    """Create test rooms for TUI tests."""
+    return [
+        Room(room_id="!lobby:test.org", name="Lobby", member_count=5),
+        Room(room_id="!dev:test.org", name="Dev", member_count=3),
+    ]
+
+
+@pytest.fixture
+def tui_messages():
+    """Create test messages for TUI tests."""
+    return [
+        Message(
+            sender="@alice:test.org",
+            content="Hello!",
+            timestamp=datetime(2024, 1, 15, 14, 30, tzinfo=UTC),
+            room_id="!lobby:test.org",
+            event_id="$ev1",
+            handle="m1",
+        ),
+        Message(
+            sender="@bot:test.org",
+            content="Hi there!",
+            timestamp=datetime(2024, 1, 15, 14, 31, tzinfo=UTC),
+            room_id="!lobby:test.org",
+            event_id="$ev2",
+            handle="m2",
+        ),
+    ]
 
 
 @pytest.fixture

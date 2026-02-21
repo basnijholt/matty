@@ -1862,5 +1862,13 @@ def reactions(  # pragma: no cover
     asyncio.run(_reactions())
 
 
+@app.command("tui")
+def tui():  # pragma: no cover
+    """Launch interactive TUI chat interface."""
+    from matty_tui import MattyApp  # noqa: PLC0415
+
+    MattyApp().run()
+
+
 if __name__ == "__main__":
     app()

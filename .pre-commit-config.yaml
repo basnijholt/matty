@@ -3,7 +3,9 @@ repos:
     rev: v5.0.0
     hooks:
       - id: trailing-whitespace
+        exclude: 'tests/__snapshots__/'
       - id: end-of-file-fixer
+        exclude: 'tests/__snapshots__/'
       - id: check-yaml
       - id: check-ast
 

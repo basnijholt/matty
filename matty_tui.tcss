@@ -1,0 +1,95 @@
+/* Matty TUI - Matrix Chat Stylesheet */
+
+/* The compose tree is: Header, Horizontal(sidebar, main-content), Footer.
+   Screen uses the default vertical layout to stack these top-to-bottom.
+   The Horizontal container handles the sidebar/main split. */
+
+Horizontal {
+    height: 1fr;
+}
+
+#sidebar {
+    width: 30;
+    height: 100%;
+    border-right: solid $primary-darken-2;
+}
+
+#main-content {
+    width: 1fr;
+    height: 100%;
+}
+
+#room-list {
+    height: 1fr;
+    min-height: 4;
+    border-bottom: solid $primary-darken-3;
+}
+
+#room-list > .list-item {
+    padding: 0 1;
+}
+
+#thread-list {
+    height: auto;
+    max-height: 10;
+}
+
+#thread-list > .list-item {
+    padding: 0 1;
+}
+
+#message-pane {
+    height: 1fr;
+    padding: 0 1;
+    scrollbar-gutter: stable;
+}
+
+#message-input {
+    width: 100%;
+    dock: bottom;
+    height: auto;
+    max-height: 8;
+    min-height: 3;
+    border-top: solid $primary-darken-2;
+}
+
+#autocomplete-menu {
+    display: none;
+    width: 100%;
+    height: auto;
+    max-height: 8;
+    background: $surface;
+    border: solid $primary;
+}
+
+/* List item styles */
+.room-item {
+    padding: 0 1;
+    height: 1;
+}
+
+.room-item.--highlight {
+    background: $accent;
+    color: $text;
+    text-style: bold;
+}
+
+.thread-item {
+    padding: 0 1;
+    height: 1;
+    color: $text-muted;
+}
+
+.thread-item.--highlight {
+    background: $accent-darken-1;
+    color: $text;
+}
+
+/* Section labels */
+.section-label {
+    background: $primary-darken-3;
+    color: $text-muted;
+    text-style: bold;
+    padding: 0 1;
+    height: 1;
+}
