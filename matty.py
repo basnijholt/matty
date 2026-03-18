@@ -6,11 +6,13 @@ import json
 import os
 import re
 import sys
+from collections.abc import Awaitable
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from pathlib import Path
+from typing import NoReturn
 from urllib.parse import urlparse
 
 import typer
@@ -72,6 +74,25 @@ class ServerState(BaseModel):
 
 # State storage - single state per matty instance
 _state: ServerState | None = None
+
+
+class MessageFetchError(Exception):
+    """Raised when fetching room messages fails."""
+
+    @classmethod
+    def from_detail(cls, detail: str) -> "MessageFetchError":
+        """Build a fetch error with consistent user-facing text."""
+        return cls(f"Failed to get messages: {detail}")
+
+    @classmethod
+    def from_exception(cls, exc: Exception) -> "MessageFetchError":
+        """Build a fetch error from a lower-level exception."""
+        return cls.from_detail(str(exc))
+
+
+def _raise_message_fetch_error(detail: str) -> NoReturn:
+    """Raise a message fetch error with consistent formatting."""
+    raise MessageFetchError.from_detail(detail)
 
 
 # =============================================================================
@@ -609,22 +630,24 @@ async def _get_messages(client: AsyncClient, room_id: str, limit: int = 20) -> l
     Note: The Matrix API returns all timeline events, not just messages. Custom events
     (like com.mindroom.agent.activity), state events, and other non-message events are
     included in the limit, so you may get fewer actual messages than requested.
+
+    Raises:
+        MessageFetchError: If the homeserver request fails or returns invalid data.
     """
     try:
         response = await client.room_messages(room_id, limit=limit)
 
-        # Check if response is an error
-        if not hasattr(response, "chunk"):
-            console.print("[red]Error fetching messages[/red]")
-            return []
+        if isinstance(response, ErrorResponse):
+            _raise_message_fetch_error(response.message)
 
+        events = response.chunk
         messages = []
         thread_roots = set()  # Track which messages have threads
         reactions_map = {}  # event_id -> {emoji: [users]}
         edits_map = {}  # original_event_id -> latest_edit_event
 
         # First pass: collect edits
-        for event in response.chunk:
+        for event in events:
             if isinstance(event, RoomMessageText):
                 content = _get_event_content(event)
                 # Check if this is an edit (m.replace relation)
@@ -640,7 +663,7 @@ async def _get_messages(client: AsyncClient, room_id: str, limit: int = 20) -> l
                     edits_map[original_id] = event
 
         # Second pass: build message list
-        for event in response.chunk:
+        for event in events:
             if isinstance(event, RoomMessageText):
                 # Skip if this is an edit event (already processed)
                 content = _get_event_content(event)
@@ -725,9 +748,10 @@ async def _get_messages(client: AsyncClient, room_id: str, limit: int = 20) -> l
         # Assign handles to messages
         return _assign_message_handles(messages)
 
-    except Exception as e:
-        console.print(f"[red]Failed to get messages: {e}[/red]")
-        return []
+    except MessageFetchError:
+        raise
+    except Exception as exc:
+        raise MessageFetchError.from_exception(exc) from exc
 
 
 async def _get_threads(client: AsyncClient, room_id: str, limit: int = 50) -> list[Message]:
@@ -1213,6 +1237,15 @@ async def _execute_send_command(
         await client.close()
 
 
+def _run_async_command(coro: Awaitable[None]) -> None:
+    """Run an async CLI command and surface fetch failures as CLI errors."""
+    try:
+        asyncio.run(coro)
+    except MessageFetchError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+
+
 # =============================================================================
 # DRY Helper Functions for CLI Commands
 # =============================================================================
@@ -1298,7 +1331,7 @@ def rooms(  # pragma: no cover
     format: OutputFormat = _OUTPUT_FORMAT_OPT,
 ):
     """List all joined rooms. (alias: r)"""
-    asyncio.run(_execute_rooms_command(username, password, format))
+    _run_async_command(_execute_rooms_command(username, password, format))
 
 
 @app.command("messages")
@@ -1313,7 +1346,7 @@ def messages(  # pragma: no cover
 ):
     """Show recent messages from a room. (alias: m)"""
     _validate_required_args(ctx, room=room)
-    asyncio.run(_execute_messages_command(room, limit, username, password, format))
+    _run_async_command(_execute_messages_command(room, limit, username, password, format))
 
 
 @app.command("users")
@@ -1327,7 +1360,7 @@ def users(  # pragma: no cover
 ):
     """Show users in a room. (alias: u)"""
     _validate_required_args(ctx, room=room)
-    asyncio.run(_execute_users_command(room, username, password, format))
+    _run_async_command(_execute_users_command(room, username, password, format))
 
 
 @app.command("send")
@@ -1353,7 +1386,7 @@ def send(  # pragma: no cover
         message = file.read_text()
 
     _validate_required_args(ctx, room=room, message=message)
-    asyncio.run(_execute_send_command(room, message, username, password, not no_mentions))
+    _run_async_command(_execute_send_command(room, message, username, password, not no_mentions))
 
 
 @app.command("threads")
@@ -1423,7 +1456,7 @@ def threads(  # pragma: no cover
                     )
                 )
 
-    asyncio.run(_threads())
+    _run_async_command(_threads())
 
 
 @app.command("thread")
@@ -1503,7 +1536,7 @@ def thread(  # pragma: no cover
                     )
                 )
 
-    asyncio.run(_thread())
+    _run_async_command(_thread())
 
 
 @app.command("reply")
@@ -1544,7 +1577,7 @@ def reply(  # pragma: no cover
             else:
                 console.print("[red]✗ Failed to send reply[/red]")
 
-    asyncio.run(_reply())
+    _run_async_command(_reply())
 
 
 @app.command("thread-start")
@@ -1590,7 +1623,7 @@ def thread_start(  # pragma: no cover
             else:
                 console.print("[red]✗ Failed to start thread[/red]")
 
-    asyncio.run(_thread_start())
+    _run_async_command(_thread_start())
 
 
 @app.command("thread-reply")
@@ -1630,7 +1663,7 @@ def thread_reply(  # pragma: no cover
             else:
                 console.print("[red]✗ Failed to send thread reply[/red]")
 
-    asyncio.run(_thread_reply())
+    _run_async_command(_thread_reply())
 
 
 @app.command("react")
@@ -1672,7 +1705,7 @@ def react(  # pragma: no cover
             else:
                 console.print("[red]✗ Failed to send reaction[/red]")
 
-    asyncio.run(_react())
+    _run_async_command(_react())
 
 
 @app.command("edit")
@@ -1744,7 +1777,7 @@ def edit(  # pragma: no cover
             except Exception as e:
                 console.print(f"[red]Failed to edit message: {e}[/red]")
 
-    asyncio.run(_edit())
+    _run_async_command(_edit())
 
 
 @app.command("redact")
@@ -1792,7 +1825,7 @@ def redact(  # pragma: no cover
             except Exception as e:
                 console.print(f"[red]Failed to redact message: {e}[/red]")
 
-    asyncio.run(_redact())
+    _run_async_command(_redact())
 
 
 @app.command("reactions")
@@ -1859,7 +1892,7 @@ def reactions(  # pragma: no cover
                     )
                 )
 
-    asyncio.run(_reactions())
+    _run_async_command(_reactions())
 
 
 @app.command("tui")

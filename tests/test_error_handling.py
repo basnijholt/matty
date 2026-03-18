@@ -7,6 +7,7 @@ from nio import AsyncClient, ErrorResponse, MatrixRoom
 from typer.testing import CliRunner
 
 from matty import (
+    MessageFetchError,
     _find_room,
     _get_messages,
     _login,
@@ -46,8 +47,8 @@ class TestErrorHandling:
         error = ErrorResponse("Forbidden", "M_FORBIDDEN")
         client.room_messages = AsyncMock(return_value=error)
 
-        messages = await _get_messages(client, "!room:matrix.org", 10)
-        assert messages == []
+        with pytest.raises(MessageFetchError, match="Forbidden"):
+            await _get_messages(client, "!room:matrix.org", 10)
 
     @pytest.mark.asyncio
     async def test_sync_client_error(self):
