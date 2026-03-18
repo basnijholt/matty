@@ -1,6 +1,7 @@
 """Additional tests to improve coverage to >90%."""
 
 import tempfile
+from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -14,6 +15,7 @@ from typer.testing import CliRunner
 
 from matty import (
     Config,
+    MessageFetchError,
     OutputFormat,
     _execute_messages_command,
     _execute_rooms_command,
@@ -235,6 +237,27 @@ class TestCLICommands:
                 with patch("asyncio.run"):
                     result = runner.invoke(app, ["messages", "Test Room"])
                     assert result.exit_code == 0
+
+    def test_cli_threads_command_surfaces_fetch_errors(self):
+        """Test CLI threads command returns a real error on message fetch failure."""
+
+        @asynccontextmanager
+        async def mock_with_client_in_room(*_args, **_kwargs):
+            yield MagicMock(spec=AsyncClient), "!room:matrix.org", "Test Room"
+
+        async def mock_get_threads(*_args, **_kwargs):
+            detail = "Forbidden"
+            raise MessageFetchError.from_detail(detail)
+
+        with (
+            patch("matty._with_client_in_room", mock_with_client_in_room),
+            patch("matty._get_threads", mock_get_threads),
+        ):
+            result = runner.invoke(app, ["threads", "Test Room"])
+
+        assert result.exit_code == 1
+        assert "Failed to get messages: Forbidden" in result.output
+        assert "No threads found" not in result.output
 
     def test_cli_send_command(self):
         """Test CLI send command."""
