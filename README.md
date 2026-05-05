@@ -51,14 +51,50 @@ uv run pre-commit install
 
 ## Configuration
 
-Matty uses environment variables for configuration. Create a `.env` file in your working directory with your Matrix credentials:
+Matty can store Matrix access-token credentials in your user config directory:
 
 ```bash
-MATRIX_HOMESERVER=https://matrix.org
-MATRIX_USERNAME=your_username
-MATRIX_PASSWORD=your_password
-MATRIX_SSL_VERIFY=true  # Set to false for test servers
+matty auth sso https://matrix.example.com
 ```
+
+If the homeserver advertises multiple SSO providers, list their provider IDs and labels:
+
+```bash
+matty auth providers https://matrix.example.com
+```
+
+Then pass the provider ID, name, or brand explicitly. Matty resolves labels like `github`
+to the canonical provider ID before opening the browser:
+
+```bash
+matty auth sso https://matrix.example.com --idp-id github
+```
+
+Existing Matrix access token:
+
+```bash
+matty auth token https://matrix.example.com @alice:example.com "$MATRIX_ACCESS_TOKEN" --device-id DEVICEID
+```
+
+Password auth, when enabled by the homeserver:
+
+```bash
+matty auth password https://matrix.example.com @alice:example.com
+```
+
+Credentials are stored in the config file reported by:
+
+```bash
+matty config-path
+```
+
+Remove stored credentials:
+
+```bash
+matty auth logout
+```
+
+Environment variables are still supported and override stored credentials.
 
 ### Environment Variables
 
@@ -67,10 +103,13 @@ MATRIX_SSL_VERIFY=true  # Set to false for test servers
 | `MATRIX_HOMESERVER` | The Matrix homeserver URL to connect to | `https://matrix.org` | `https://matrix.example.com` |
 | `MATRIX_USERNAME` | Your Matrix username (without @ or :server) | None (required) | `alice` |
 | `MATRIX_PASSWORD` | Your Matrix account password | None (required) | `secretpassword` |
+| `MATRIX_USER_ID` | Full Matrix user ID for access-token auth | None | `@alice:example.com` |
+| `MATRIX_DEVICE_ID` | Matrix device ID for access-token auth | None | `DEVICEID` |
+| `MATRIX_ACCESS_TOKEN` | Matrix access token | None | `syt_...` |
 | `MATRIX_SSL_VERIFY` | Whether to verify SSL certificates | `true` | `false` (for test servers) |
 
 **Notes:**
-- The username should be provided without the `@` prefix or `:server` suffix
+- `MATRIX_USERNAME` should be provided without the `@` prefix or `:server` suffix
 - Set `MATRIX_SSL_VERIFY=false` when connecting to test servers with self-signed certificates
 - Command-line options (`--username`, `--password`) override environment variables
 
@@ -98,6 +137,7 @@ MATRIX_SSL_VERIFY=true  # Set to false for test servers
 │ --help                -h        Show this message and exit.                            │
 ╰────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ─────────────────────────────────────────────────────────────────────────────╮
+│ config-path   Print the path to the Matty credential config file.                      │
 │ rooms         List all joined rooms. (alias: r)                                        │
 │ messages      Show recent messages from a room. (alias: m)                             │
 │ users         Show users in a room. (alias: u)                                         │
@@ -112,6 +152,7 @@ MATRIX_SSL_VERIFY=true  # Set to false for test servers
 │ redact        Delete/redact a message using its handle. (alias: del)                   │
 │ reactions     Show detailed reactions for a specific message. (alias: rxs)             │
 │ tui           Launch interactive TUI chat interface.                                   │
+│ auth                                                                                   │
 ╰────────────────────────────────────────────────────────────────────────────────────────╯
 
 ```

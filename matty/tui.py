@@ -31,6 +31,7 @@ from matty.cli import (
     Config,
     Message,
     Room,
+    _authenticate_client,
     _create_client,
     _find_room,
     _get_event_id_from_handle,
@@ -40,6 +41,7 @@ from matty.cli import (
     _get_rooms,
     _get_thread_messages,
     _get_threads,
+    _has_matrix_credentials,
     _load_config,
     _login,
     _send_message,
@@ -58,6 +60,15 @@ POLL_INTERVAL_S = 3
 SYNC_TIMEOUT_MS = 5000
 _MAX_POLL_FAILURES = 5
 _MESSAGE_LIMIT = 50
+
+
+async def _login_or_restore(client: AsyncClient, config: Config) -> bool:
+    """Authenticate for the TUI using token restore or password login."""
+    if _authenticate_client(client, config):
+        return True
+    if config.password:
+        return await _login(client, config.password)
+    return False
 
 
 def _format_sender(sender: str) -> str:
@@ -281,9 +292,9 @@ class MattyApp(App):
     @work(exclusive=True, group="connect")
     async def _connect_and_load(self) -> None:
         """Connect to Matrix and load rooms."""
-        if not self.config.username or not self.config.password:
+        if not _has_matrix_credentials(self.config):
             self._log_to_pane(
-                "Error: Username and password required. Set MATRIX_USERNAME and MATRIX_PASSWORD."
+                "Error: Matrix credentials required. Run `matty auth` or set MATRIX_USERNAME and MATRIX_PASSWORD."
             )
             return
 
@@ -300,7 +311,7 @@ class MattyApp(App):
             client = await _create_client(self.config)
             should_close_client = True
 
-            if not await _login(client, self.config.password):
+            if not await _login_or_restore(client, self.config):
                 self._log_to_pane("Login failed. Check credentials.")
                 return
 
