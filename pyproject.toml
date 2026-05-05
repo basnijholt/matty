@@ -31,7 +31,7 @@ dependencies = [
 ]
 
 [project.scripts]
-matty = "matty:app"
+matty = "matty.cli:app"
 
 [project.urls]
 Homepage = "https://github.com/basnijholt/matty"
@@ -61,10 +61,10 @@ build-backend = "hatchling.build"
 source = "versioningit"
 
 [tool.hatch.build.targets.wheel]
-packages = ["."]
+packages = ["matty"]
 
 [tool.hatch.build]
-only-include = ["matty.py", "matty_tui.py", "matty_tui.tcss"]
+only-include = ["matty", "matty.py", "matty_tui.py"]
 
 [tool.coverage.run]
 branch = true

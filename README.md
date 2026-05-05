@@ -674,9 +674,15 @@ matty rooms --format json | jq '.[] | .name'
 ## Project Structure
 
 ```
-matrix-cli/
-├── matty.py         # Main CLI application (functional style)
-├── test_client.py        # Connection testing utility
+matty/
+├── matty/                # Package source
+│   ├── __init__.py       # Compatibility exports for the historical module API
+│   ├── __main__.py       # `python -m matty` entry point
+│   ├── cli.py            # Main CLI application (functional style)
+│   ├── tui.py            # Interactive TUI application
+│   └── matty_tui.tcss    # TUI stylesheet
+├── matty.py              # Source-checkout compatibility wrapper
+├── matty_tui.py          # Historical `matty_tui` import alias
 ├── tests/                # Test suite
 │   ├── __init__.py
 │   ├── conftest.py       # Pytest configuration
