@@ -64,12 +64,12 @@ source = "versioningit"
 packages = ["matty"]
 
 [tool.hatch.build]
-only-include = ["matty", "matty.py", "matty_tui.py"]
+only-include = ["matty"]
 
 [tool.coverage.run]
 branch = true
 parallel = true
-source = ["matty", "matty_tui"]
+source = ["matty"]
 omit = [
     "tests/*",
     "test_*.py",

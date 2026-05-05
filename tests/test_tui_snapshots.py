@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 import pytest
 
 from matty import Config, Message, Room
-from matty_tui import MattyApp
+from matty.tui import MattyApp
 
 # Snapshots render differently across environments (fonts, terminal, OS).
 # Skip in CI to avoid false failures; run locally with --snapshot-update.
@@ -117,7 +117,7 @@ async def _populate_app(pilot):
     ListView.append() returns an AwaitMount that must be awaited
     for the child widgets to actually mount and render.
     """
-    from matty_tui import ListView, RichLog, ThreadItem, _format_message_line, _get_or_create_id
+    from matty.tui import ListView, RichLog, ThreadItem, _format_message_line, _get_or_create_id
 
     app = pilot.app
     # Cancel any workers that started from on_mount
@@ -129,7 +129,7 @@ async def _populate_app(pilot):
     app.rooms = _make_rooms()
     room_list = app.query_one("#room-list", ListView)
     room_list.clear()
-    from matty_tui import RoomItem
+    from matty.tui import RoomItem
 
     for room in sorted(app.rooms, key=lambda r: r.name.lower()):
         await room_list.append(RoomItem(room))

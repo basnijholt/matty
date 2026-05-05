@@ -681,8 +681,6 @@ matty/
 │   ├── cli.py            # Main CLI application (functional style)
 │   ├── tui.py            # Interactive TUI application
 │   └── matty_tui.tcss    # TUI stylesheet
-├── matty.py              # Source-checkout compatibility wrapper
-├── matty_tui.py          # Historical `matty_tui` import alias
 ├── tests/                # Test suite
 │   ├── __init__.py
 │   ├── conftest.py       # Pytest configuration

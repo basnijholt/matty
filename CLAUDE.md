@@ -17,7 +17,7 @@
 
 ### 2. Testing
 - Run tests with `pytest` before claiming completion
-- Use `uv run python matty.py` to test the client
+- Use `uv run python -m matty` to test the client
 - Use `uv run python test_client.py` for connection testing
 
 ### 3. Code Quality
@@ -46,7 +46,7 @@
 
 ```bash
 # Text-based client
-uv run python matty.py
+uv run python -m matty
 
 # Test connection
 uv run python test_client.py

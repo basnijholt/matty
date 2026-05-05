@@ -9,7 +9,7 @@ from rich.markdown import Markdown as RichMarkdown
 from textual.widgets import ListView, OptionList, RichLog
 
 from matty import Config, Message, Room
-from matty_tui import (
+from matty.tui import (
     _MAX_POLL_FAILURES,
     SLASH_COMMANDS,
     MattyApp,
@@ -174,7 +174,7 @@ class TestMattyAppInit:
     """Tests for MattyApp initialization."""
 
     def test_app_default_config(self):
-        with patch("matty_tui._load_config") as mock_config:
+        with patch("matty.tui._load_config") as mock_config:
             mock_config.return_value = Config(
                 homeserver="https://test.matrix.org",
                 username="test",
@@ -242,17 +242,17 @@ class TestMattyAppAsync:
         app = MattyApp(config=tui_config)
 
         with (
-            patch("matty_tui._create_client", new_callable=AsyncMock) as mock_create,
-            patch("matty_tui._login", new_callable=AsyncMock, return_value=True),
-            patch("matty_tui._get_rooms", new_callable=AsyncMock, return_value=tui_rooms),
+            patch("matty.tui._create_client", new_callable=AsyncMock) as mock_create,
+            patch("matty.tui._login", new_callable=AsyncMock, return_value=True),
+            patch("matty.tui._get_rooms", new_callable=AsyncMock, return_value=tui_rooms),
             patch(
-                "matty_tui._get_messages",
+                "matty.tui._get_messages",
                 new_callable=AsyncMock,
                 return_value=tui_messages,
             ),
-            patch("matty_tui._get_threads", new_callable=AsyncMock, return_value=[]),
-            patch("matty_tui._sync_client", new_callable=AsyncMock),
-            patch("matty_tui._get_room_users", return_value=[]),
+            patch("matty.tui._get_threads", new_callable=AsyncMock, return_value=[]),
+            patch("matty.tui._sync_client", new_callable=AsyncMock),
+            patch("matty.tui._get_room_users", return_value=[]),
         ):
             mock_client = AsyncMock()
             mock_create.return_value = mock_client
@@ -282,8 +282,8 @@ class TestMattyAppAsync:
         app = MattyApp(config=tui_config)
 
         with (
-            patch("matty_tui._create_client", new_callable=AsyncMock) as mock_create,
-            patch("matty_tui._login", new_callable=AsyncMock, return_value=False),
+            patch("matty.tui._create_client", new_callable=AsyncMock) as mock_create,
+            patch("matty.tui._login", new_callable=AsyncMock, return_value=False),
         ):
             mock_client = AsyncMock()
             mock_create.return_value = mock_client
@@ -299,10 +299,10 @@ class TestMattyAppAsync:
         app = MattyApp(config=tui_config)
 
         with (
-            patch("matty_tui._create_client", new_callable=AsyncMock) as mock_create,
-            patch("matty_tui._login", new_callable=AsyncMock, return_value=True),
+            patch("matty.tui._create_client", new_callable=AsyncMock) as mock_create,
+            patch("matty.tui._login", new_callable=AsyncMock, return_value=True),
             patch(
-                "matty_tui._get_rooms",
+                "matty.tui._get_rooms",
                 new_callable=AsyncMock,
                 side_effect=OSError("Network unreachable"),
             ),
@@ -321,19 +321,19 @@ class TestMattyAppAsync:
         app = MattyApp(config=tui_config)
 
         with (
-            patch("matty_tui._create_client", new_callable=AsyncMock) as mock_create,
-            patch("matty_tui._login", new_callable=AsyncMock, return_value=True),
-            patch("matty_tui._get_rooms", new_callable=AsyncMock, return_value=tui_rooms),
+            patch("matty.tui._create_client", new_callable=AsyncMock) as mock_create,
+            patch("matty.tui._login", new_callable=AsyncMock, return_value=True),
+            patch("matty.tui._get_rooms", new_callable=AsyncMock, return_value=tui_rooms),
             patch(
-                "matty_tui._get_messages",
+                "matty.tui._get_messages",
                 new_callable=AsyncMock,
                 return_value=tui_messages,
             ),
-            patch("matty_tui._get_threads", new_callable=AsyncMock, return_value=[]),
-            patch("matty_tui._sync_client", new_callable=AsyncMock),
-            patch("matty_tui._get_room_users", return_value=[]),
+            patch("matty.tui._get_threads", new_callable=AsyncMock, return_value=[]),
+            patch("matty.tui._sync_client", new_callable=AsyncMock),
+            patch("matty.tui._get_room_users", return_value=[]),
             patch(
-                "matty_tui._send_message", new_callable=AsyncMock, return_value=True
+                "matty.tui._send_message", new_callable=AsyncMock, return_value=True
             ) as mock_send,
         ):
             mock_client = AsyncMock()
@@ -375,11 +375,11 @@ class TestMattyAppAsync:
 
         with (
             patch(
-                "matty_tui._send_message",
+                "matty.tui._send_message",
                 new_callable=AsyncMock,
                 side_effect=delayed_send,
             ) as mock_send,
-            patch("matty_tui._sync_client", new_callable=AsyncMock) as mock_sync,
+            patch("matty.tui._sync_client", new_callable=AsyncMock) as mock_sync,
         ):
             async with app.run_test(size=(120, 40)) as pilot:
                 app.client = AsyncMock()
@@ -429,8 +429,8 @@ class TestMattyAppAsync:
             app._polling = False
 
         with (
-            patch("matty_tui.asyncio.sleep", new=AsyncMock(side_effect=stop_after_one_tick)),
-            patch("matty_tui._sync_client", new_callable=AsyncMock),
+            patch("matty.tui.asyncio.sleep", new=AsyncMock(side_effect=stop_after_one_tick)),
+            patch("matty.tui._sync_client", new_callable=AsyncMock),
         ):
             await MattyApp._poll_messages.__wrapped__(app)
 
@@ -459,9 +459,9 @@ class TestMattyAppAsync:
         app.notify = capture_notify
 
         with (
-            patch("matty_tui.asyncio.sleep", new=AsyncMock(side_effect=stop_after_n_ticks)),
+            patch("matty.tui.asyncio.sleep", new=AsyncMock(side_effect=stop_after_n_ticks)),
             patch(
-                "matty_tui._sync_client",
+                "matty.tui._sync_client",
                 new_callable=AsyncMock,
                 side_effect=OSError("Network unreachable"),
             ),
@@ -487,8 +487,8 @@ class TestMattyAppAsync:
             app._polling = False
 
         with (
-            patch("matty_tui.asyncio.sleep", new=AsyncMock(side_effect=stop_after_one_tick)),
-            patch("matty_tui._sync_client", new_callable=AsyncMock),
+            patch("matty.tui.asyncio.sleep", new=AsyncMock(side_effect=stop_after_one_tick)),
+            patch("matty.tui._sync_client", new_callable=AsyncMock),
         ):
             await MattyApp._poll_messages.__wrapped__(app)
 
@@ -509,9 +509,9 @@ class TestMattyAppAsync:
             app._polling = False  # Stop after one iteration
 
         with (
-            patch("matty_tui.asyncio.sleep", new=AsyncMock(side_effect=capture_sleep)),
+            patch("matty.tui.asyncio.sleep", new=AsyncMock(side_effect=capture_sleep)),
             patch(
-                "matty_tui._sync_client",
+                "matty.tui._sync_client",
                 new_callable=AsyncMock,
                 side_effect=OSError("Network unreachable"),
             ),
@@ -519,7 +519,7 @@ class TestMattyAppAsync:
             await MattyApp._poll_messages.__wrapped__(app)
 
         # With _poll_failures == _MAX_POLL_FAILURES, backoff should be > POLL_INTERVAL_S
-        from matty_tui import POLL_INTERVAL_S
+        from matty.tui import POLL_INTERVAL_S
 
         assert sleep_delays[0] > POLL_INTERVAL_S
 
@@ -546,8 +546,8 @@ class TestMattyAppAsync:
             app._polling = False
 
         with (
-            patch("matty_tui.asyncio.sleep", new=AsyncMock(side_effect=stop_after_one_tick)),
-            patch("matty_tui._sync_client", new_callable=AsyncMock),
+            patch("matty.tui.asyncio.sleep", new=AsyncMock(side_effect=stop_after_one_tick)),
+            patch("matty.tui._sync_client", new_callable=AsyncMock),
         ):
             await MattyApp._poll_messages.__wrapped__(app)
 
@@ -590,8 +590,8 @@ class TestMattyAppAsync:
             app._polling = False
 
         with (
-            patch("matty_tui.asyncio.sleep", new=AsyncMock(side_effect=stop_after_one_tick)),
-            patch("matty_tui._sync_client", new_callable=AsyncMock),
+            patch("matty.tui.asyncio.sleep", new=AsyncMock(side_effect=stop_after_one_tick)),
+            patch("matty.tui._sync_client", new_callable=AsyncMock),
         ):
             await MattyApp._poll_messages.__wrapped__(app)
 
@@ -630,16 +630,16 @@ class TestSlashCommands:
         app = MattyApp(config=tui_config)
 
         with (
-            patch("matty_tui._create_client", new_callable=AsyncMock) as mock_create,
-            patch("matty_tui._login", new_callable=AsyncMock, return_value=True),
-            patch("matty_tui._get_rooms", new_callable=AsyncMock, return_value=tui_rooms),
-            patch("matty_tui._get_messages", new_callable=AsyncMock, return_value=tui_messages),
-            patch("matty_tui._get_threads", new_callable=AsyncMock, return_value=[]),
-            patch("matty_tui._sync_client", new_callable=AsyncMock),
-            patch("matty_tui._get_room_users", return_value=[]),
-            patch("matty_tui._get_event_id_from_handle", return_value="$ev1"),
+            patch("matty.tui._create_client", new_callable=AsyncMock) as mock_create,
+            patch("matty.tui._login", new_callable=AsyncMock, return_value=True),
+            patch("matty.tui._get_rooms", new_callable=AsyncMock, return_value=tui_rooms),
+            patch("matty.tui._get_messages", new_callable=AsyncMock, return_value=tui_messages),
+            patch("matty.tui._get_threads", new_callable=AsyncMock, return_value=[]),
+            patch("matty.tui._sync_client", new_callable=AsyncMock),
+            patch("matty.tui._get_room_users", return_value=[]),
+            patch("matty.tui._get_event_id_from_handle", return_value="$ev1"),
             patch(
-                "matty_tui._send_message", new_callable=AsyncMock, return_value=True
+                "matty.tui._send_message", new_callable=AsyncMock, return_value=True
             ) as mock_send,
         ):
             mock_client = AsyncMock()
@@ -666,16 +666,16 @@ class TestSlashCommands:
         app = MattyApp(config=tui_config)
 
         with (
-            patch("matty_tui._create_client", new_callable=AsyncMock) as mock_create,
-            patch("matty_tui._login", new_callable=AsyncMock, return_value=True),
-            patch("matty_tui._get_rooms", new_callable=AsyncMock, return_value=tui_rooms),
-            patch("matty_tui._get_messages", new_callable=AsyncMock, return_value=tui_messages),
-            patch("matty_tui._get_threads", new_callable=AsyncMock, return_value=[]),
-            patch("matty_tui._sync_client", new_callable=AsyncMock),
-            patch("matty_tui._get_room_users", return_value=[]),
-            patch("matty_tui._get_event_id_from_handle", return_value="$ev1"),
+            patch("matty.tui._create_client", new_callable=AsyncMock) as mock_create,
+            patch("matty.tui._login", new_callable=AsyncMock, return_value=True),
+            patch("matty.tui._get_rooms", new_callable=AsyncMock, return_value=tui_rooms),
+            patch("matty.tui._get_messages", new_callable=AsyncMock, return_value=tui_messages),
+            patch("matty.tui._get_threads", new_callable=AsyncMock, return_value=[]),
+            patch("matty.tui._sync_client", new_callable=AsyncMock),
+            patch("matty.tui._get_room_users", return_value=[]),
+            patch("matty.tui._get_event_id_from_handle", return_value="$ev1"),
             patch(
-                "matty_tui._send_reaction", new_callable=AsyncMock, return_value=True
+                "matty.tui._send_reaction", new_callable=AsyncMock, return_value=True
             ) as mock_react,
         ):
             mock_client = AsyncMock()
@@ -702,16 +702,16 @@ class TestSlashCommands:
         app = MattyApp(config=tui_config)
 
         with (
-            patch("matty_tui._create_client", new_callable=AsyncMock) as mock_create,
-            patch("matty_tui._login", new_callable=AsyncMock, return_value=True),
-            patch("matty_tui._get_rooms", new_callable=AsyncMock, return_value=tui_rooms),
-            patch("matty_tui._get_messages", new_callable=AsyncMock, return_value=tui_messages),
-            patch("matty_tui._get_threads", new_callable=AsyncMock, return_value=[]),
-            patch("matty_tui._sync_client", new_callable=AsyncMock),
-            patch("matty_tui._get_room_users", return_value=[]),
-            patch("matty_tui._get_event_id_from_handle", return_value="$ev1"),
+            patch("matty.tui._create_client", new_callable=AsyncMock) as mock_create,
+            patch("matty.tui._login", new_callable=AsyncMock, return_value=True),
+            patch("matty.tui._get_rooms", new_callable=AsyncMock, return_value=tui_rooms),
+            patch("matty.tui._get_messages", new_callable=AsyncMock, return_value=tui_messages),
+            patch("matty.tui._get_threads", new_callable=AsyncMock, return_value=[]),
+            patch("matty.tui._sync_client", new_callable=AsyncMock),
+            patch("matty.tui._get_room_users", return_value=[]),
+            patch("matty.tui._get_event_id_from_handle", return_value="$ev1"),
             patch(
-                "matty_tui._send_message", new_callable=AsyncMock, return_value=True
+                "matty.tui._send_message", new_callable=AsyncMock, return_value=True
             ) as mock_send,
         ):
             mock_client = AsyncMock()
@@ -738,14 +738,14 @@ class TestSlashCommands:
         app = MattyApp(config=tui_config)
 
         with (
-            patch("matty_tui._create_client", new_callable=AsyncMock) as mock_create,
-            patch("matty_tui._login", new_callable=AsyncMock, return_value=True),
-            patch("matty_tui._get_rooms", new_callable=AsyncMock, return_value=tui_rooms),
-            patch("matty_tui._get_messages", new_callable=AsyncMock, return_value=tui_messages),
-            patch("matty_tui._get_threads", new_callable=AsyncMock, return_value=[]),
-            patch("matty_tui._sync_client", new_callable=AsyncMock),
-            patch("matty_tui._get_room_users", return_value=[]),
-            patch("matty_tui._send_message", new_callable=AsyncMock) as mock_send,
+            patch("matty.tui._create_client", new_callable=AsyncMock) as mock_create,
+            patch("matty.tui._login", new_callable=AsyncMock, return_value=True),
+            patch("matty.tui._get_rooms", new_callable=AsyncMock, return_value=tui_rooms),
+            patch("matty.tui._get_messages", new_callable=AsyncMock, return_value=tui_messages),
+            patch("matty.tui._get_threads", new_callable=AsyncMock, return_value=[]),
+            patch("matty.tui._sync_client", new_callable=AsyncMock),
+            patch("matty.tui._get_room_users", return_value=[]),
+            patch("matty.tui._send_message", new_callable=AsyncMock) as mock_send,
         ):
             mock_client = AsyncMock()
             mock_create.return_value = mock_client
@@ -779,12 +779,12 @@ class TestSlashCommands:
 
         with (
             patch(
-                "matty_tui._send_message",
+                "matty.tui._send_message",
                 new_callable=AsyncMock,
                 side_effect=delayed_send,
             ),
-            patch("matty_tui._sync_client", new_callable=AsyncMock),
-            patch("matty_tui._get_event_id_from_handle", return_value="$ev1"),
+            patch("matty.tui._sync_client", new_callable=AsyncMock),
+            patch("matty.tui._get_event_id_from_handle", return_value="$ev1"),
         ):
             async with app.run_test(size=(120, 40)) as pilot:
                 app.client = AsyncMock()
@@ -818,15 +818,15 @@ class TestSlashCommands:
         app = MattyApp(config=tui_config)
 
         with (
-            patch("matty_tui._create_client", new_callable=AsyncMock) as mock_create,
-            patch("matty_tui._login", new_callable=AsyncMock, return_value=True),
-            patch("matty_tui._get_rooms", new_callable=AsyncMock, return_value=tui_rooms),
-            patch("matty_tui._get_messages", new_callable=AsyncMock, return_value=tui_messages),
-            patch("matty_tui._get_threads", new_callable=AsyncMock, return_value=[]),
-            patch("matty_tui._sync_client", new_callable=AsyncMock),
-            patch("matty_tui._get_room_users", return_value=[]),
+            patch("matty.tui._create_client", new_callable=AsyncMock) as mock_create,
+            patch("matty.tui._login", new_callable=AsyncMock, return_value=True),
+            patch("matty.tui._get_rooms", new_callable=AsyncMock, return_value=tui_rooms),
+            patch("matty.tui._get_messages", new_callable=AsyncMock, return_value=tui_messages),
+            patch("matty.tui._get_threads", new_callable=AsyncMock, return_value=[]),
+            patch("matty.tui._sync_client", new_callable=AsyncMock),
+            patch("matty.tui._get_room_users", return_value=[]),
             patch(
-                "matty_tui._find_room",
+                "matty.tui._find_room",
                 new_callable=AsyncMock,
                 return_value=("!lobby:test.org", "Lobby"),
             ),
@@ -1059,7 +1059,7 @@ class TestReadyGuard:
         config = Config(homeserver="https://test.matrix.org", username="t", password="t")
         app = MattyApp(config=config)
 
-        with patch("matty_tui._send_message", new_callable=AsyncMock) as mock_send:
+        with patch("matty.tui._send_message", new_callable=AsyncMock) as mock_send:
             async with app.run_test(size=(120, 40)):
                 app.client = AsyncMock()
                 app.current_room_id = "!room:test.org"
@@ -1179,7 +1179,7 @@ class TestMessagesChangedReactionOrder:
         The server may return reaction users in arbitrary order. If we do a naive
         list comparison, different orderings would cause unnecessary re-renders.
         """
-        from matty_tui import _messages_changed
+        from matty.tui import _messages_changed
 
         msg_a = Message(
             sender="@alice:test.org",
@@ -1257,8 +1257,8 @@ class TestNotificationDetection:
             app._polling = False
 
         with (
-            patch("matty_tui.asyncio.sleep", new=AsyncMock(side_effect=stop_after_one_tick)),
-            patch("matty_tui._sync_client", new_callable=AsyncMock),
+            patch("matty.tui.asyncio.sleep", new=AsyncMock(side_effect=stop_after_one_tick)),
+            patch("matty.tui._sync_client", new_callable=AsyncMock),
         ):
             await MattyApp._poll_messages.__wrapped__(app)
 
@@ -1284,9 +1284,9 @@ class TestSendMessageMentions:
 
         with (
             patch(
-                "matty_tui._send_message", new_callable=AsyncMock, return_value=True
+                "matty.tui._send_message", new_callable=AsyncMock, return_value=True
             ) as mock_send,
-            patch("matty_tui._sync_client", new_callable=AsyncMock),
+            patch("matty.tui._sync_client", new_callable=AsyncMock),
         ):
             async with app.run_test(size=(120, 40)) as pilot:
                 app.client = AsyncMock()
@@ -1354,8 +1354,8 @@ class TestConnectWorkerCleanup:
         new_client = AsyncMock()
 
         with (
-            patch("matty_tui._create_client", new_callable=AsyncMock, return_value=new_client),
-            patch("matty_tui._login", new_callable=AsyncMock, return_value=False),
+            patch("matty.tui._create_client", new_callable=AsyncMock, return_value=new_client),
+            patch("matty.tui._login", new_callable=AsyncMock, return_value=False),
         ):
             async with app.run_test(size=(120, 40)):
                 # Simulate a leftover client from a previous canceled attempt
@@ -1382,8 +1382,8 @@ class TestConnectWorkerCleanup:
             return True
 
         with (
-            patch("matty_tui._create_client", new_callable=AsyncMock, return_value=client),
-            patch("matty_tui._login", new_callable=AsyncMock, side_effect=block_login),
+            patch("matty.tui._create_client", new_callable=AsyncMock, return_value=client),
+            patch("matty.tui._login", new_callable=AsyncMock, side_effect=block_login),
         ):
             async with app.run_test(size=(120, 40)):
                 # Prevent auto-connect on mount from starting a real connection.
