@@ -28,17 +28,20 @@ class TestConfigLoading:
         assert config.password == "user_secure_password"
         assert config.ssl_verify is False
 
-    def test_load_config_defaults(self, monkeypatch):
+    def test_load_config_defaults(self, monkeypatch, tmp_path):
         """Test loading config with defaults."""
         # Clear any existing env vars
         monkeypatch.delenv("MATRIX_HOMESERVER", raising=False)
         monkeypatch.delenv("MATRIX_USERNAME", raising=False)
         monkeypatch.delenv("MATRIX_PASSWORD", raising=False)
         monkeypatch.delenv("MATRIX_SSL_VERIFY", raising=False)
+        monkeypatch.delenv("MATRIX_USER_ID", raising=False)
+        monkeypatch.delenv("MATRIX_DEVICE_ID", raising=False)
+        monkeypatch.delenv("MATRIX_ACCESS_TOKEN", raising=False)
 
         # Mock dotenv.load_dotenv to not load .env file
         with patch("matty.load_dotenv"):
-            config = _load_config()
+            config = _load_config(tmp_path / "missing-config.json")
             assert config.homeserver == "https://matrix.org"
             assert config.username is None
             assert config.password is None

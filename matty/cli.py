@@ -40,13 +40,30 @@ from matty.auth import (
     resolve_sso_provider_id,
 )
 
+HELP_SETUP = "Setup"
+HELP_BROWSE = "Browse"
+HELP_MESSAGING = "Messaging"
+HELP_THREADS = "Threads"
+HELP_REACTIONS = "Reactions"
+HELP_INTERFACE = "Interface"
+
+AUTH_HELP = "Manage Matrix authentication credentials."
+AUTH_HELP_SSO = "SSO Login"
+AUTH_HELP_DIRECT = "Direct Login"
+AUTH_HELP_SESSION = "Session"
+
 app = typer.Typer(
     help="Functional Matrix CLI client",
     no_args_is_help=True,  # Show help when no command is provided
     context_settings={"help_option_names": ["-h", "--help"]},  # Add -h short option
 )
-auth_app = typer.Typer(no_args_is_help=True)
-app.add_typer(auth_app, name="auth")
+auth_app = typer.Typer(help=AUTH_HELP, no_args_is_help=True)
+app.add_typer(
+    auth_app,
+    name="auth",
+    help=AUTH_HELP,
+    rich_help_panel=HELP_SETUP,
+)
 console = Console()
 
 # =============================================================================
@@ -1438,13 +1455,13 @@ async def _with_client_in_room(
 # =============================================================================
 
 
-@app.command("config-path")
+@app.command("config-path", rich_help_panel=HELP_SETUP)
 def config_path() -> None:
     """Print the path to the Matty credential config file."""
     typer.echo(str(_default_config_path()))
 
 
-@auth_app.command("token")
+@auth_app.command("token", rich_help_panel=AUTH_HELP_DIRECT)
 def auth_token(
     homeserver: str = typer.Argument(..., help="Matrix homeserver URL"),
     user_id: str = typer.Argument(..., help="Matrix user ID, e.g. @alice:example.com"),
@@ -1471,7 +1488,7 @@ def auth_token(
     typer.echo(f"Saved Matty credentials to {config_path}")
 
 
-@auth_app.command("password")
+@auth_app.command("password", rich_help_panel=AUTH_HELP_DIRECT)
 def auth_password(
     homeserver: str = typer.Argument(..., help="Matrix homeserver URL"),
     user: str = typer.Argument(..., help="Matrix user ID or localpart"),
@@ -1498,7 +1515,7 @@ def auth_password(
     typer.echo(f"Saved Matty credentials for {result.user_id} to {config_path}")
 
 
-@auth_app.command("sso-url")
+@auth_app.command("sso-url", rich_help_panel=AUTH_HELP_SSO)
 def auth_sso_url(
     homeserver: str = typer.Argument(..., help="Matrix homeserver URL"),
     redirect_url: str = typer.Argument(..., help="Callback URL that receives loginToken"),
@@ -1529,7 +1546,7 @@ def auth_sso_url(
         webbrowser.open(url)
 
 
-@auth_app.command("providers")
+@auth_app.command("providers", rich_help_panel=AUTH_HELP_SSO)
 def auth_providers(
     homeserver: str = typer.Argument(..., help="Matrix homeserver URL"),
     ssl_verify: bool = typer.Option(
@@ -1547,7 +1564,7 @@ def auth_providers(
         typer.echo(f"{provider.id}\t{_sso_provider_label(provider)}")
 
 
-@auth_app.command("sso")
+@auth_app.command("sso", rich_help_panel=AUTH_HELP_SSO)
 def auth_sso(
     homeserver: str = typer.Argument(..., help="Matrix homeserver URL"),
     idp_id: str | None = typer.Option(
@@ -1594,7 +1611,7 @@ def auth_sso(
     typer.echo(f"Saved Matty credentials for {result.user_id} to {config_path}")
 
 
-@auth_app.command("login-token")
+@auth_app.command("login-token", rich_help_panel=AUTH_HELP_DIRECT)
 def auth_login_token(
     homeserver: str = typer.Argument(..., help="Matrix homeserver URL"),
     login_token: str = typer.Argument(..., help="Single-use Matrix m.login.token value"),
@@ -1619,7 +1636,7 @@ def auth_login_token(
     typer.echo(f"Saved Matty credentials for {result.user_id} to {config_path}")
 
 
-@auth_app.command("logout")
+@auth_app.command("logout", rich_help_panel=AUTH_HELP_SESSION)
 def auth_logout(
     config: Path | None = typer.Option(None, "--config", help="Config file to remove"),
 ) -> None:
@@ -1666,7 +1683,7 @@ def _sso_provider_label(provider) -> str:
     return provider.name or provider.brand or provider.id
 
 
-@app.command("rooms")
+@app.command("rooms", rich_help_panel=HELP_BROWSE)
 @app.command("r", hidden=True)
 def rooms(  # pragma: no cover
     username: str | None = _USERNAME_OPT,
@@ -1677,7 +1694,7 @@ def rooms(  # pragma: no cover
     _run_async_command(_execute_rooms_command(username, password, format))
 
 
-@app.command("messages")
+@app.command("messages", rich_help_panel=HELP_BROWSE)
 @app.command("m", hidden=True)
 def messages(  # pragma: no cover
     ctx: typer.Context,
@@ -1692,7 +1709,7 @@ def messages(  # pragma: no cover
     _run_async_command(_execute_messages_command(room, limit, username, password, format))
 
 
-@app.command("users")
+@app.command("users", rich_help_panel=HELP_BROWSE)
 @app.command("u", hidden=True)
 def users(  # pragma: no cover
     ctx: typer.Context,
@@ -1706,7 +1723,7 @@ def users(  # pragma: no cover
     _run_async_command(_execute_users_command(room, username, password, format))
 
 
-@app.command("send")
+@app.command("send", rich_help_panel=HELP_MESSAGING)
 @app.command("s", hidden=True)
 def send(  # pragma: no cover
     ctx: typer.Context,
@@ -1732,7 +1749,7 @@ def send(  # pragma: no cover
     _run_async_command(_execute_send_command(room, message, username, password, not no_mentions))
 
 
-@app.command("threads")
+@app.command("threads", rich_help_panel=HELP_THREADS)
 @app.command("t", hidden=True)
 def threads(  # pragma: no cover
     ctx: typer.Context,
@@ -1802,7 +1819,7 @@ def threads(  # pragma: no cover
     _run_async_command(_threads())
 
 
-@app.command("thread")
+@app.command("thread", rich_help_panel=HELP_THREADS)
 @app.command("th", hidden=True)
 def thread(  # pragma: no cover
     ctx: typer.Context,
@@ -1882,7 +1899,7 @@ def thread(  # pragma: no cover
     _run_async_command(_thread())
 
 
-@app.command("reply")
+@app.command("reply", rich_help_panel=HELP_MESSAGING)
 @app.command("re", hidden=True)
 def reply(  # pragma: no cover
     ctx: typer.Context,
@@ -1923,7 +1940,7 @@ def reply(  # pragma: no cover
     _run_async_command(_reply())
 
 
-@app.command("thread-start")
+@app.command("thread-start", rich_help_panel=HELP_THREADS)
 @app.command("ts", hidden=True)
 def thread_start(  # pragma: no cover
     ctx: typer.Context,
@@ -1969,7 +1986,7 @@ def thread_start(  # pragma: no cover
     _run_async_command(_thread_start())
 
 
-@app.command("thread-reply")
+@app.command("thread-reply", rich_help_panel=HELP_THREADS)
 @app.command("tr", hidden=True)
 def thread_reply(  # pragma: no cover
     ctx: typer.Context,
@@ -2009,7 +2026,7 @@ def thread_reply(  # pragma: no cover
     _run_async_command(_thread_reply())
 
 
-@app.command("react")
+@app.command("react", rich_help_panel=HELP_REACTIONS)
 @app.command("rx", hidden=True)
 def react(  # pragma: no cover
     ctx: typer.Context,
@@ -2051,7 +2068,7 @@ def react(  # pragma: no cover
     _run_async_command(_react())
 
 
-@app.command("edit")
+@app.command("edit", rich_help_panel=HELP_MESSAGING)
 @app.command("e", hidden=True)
 def edit(  # pragma: no cover
     ctx: typer.Context,
@@ -2123,7 +2140,7 @@ def edit(  # pragma: no cover
     _run_async_command(_edit())
 
 
-@app.command("redact")
+@app.command("redact", rich_help_panel=HELP_MESSAGING)
 @app.command("del", hidden=True)
 def redact(  # pragma: no cover
     ctx: typer.Context,
@@ -2171,7 +2188,7 @@ def redact(  # pragma: no cover
     _run_async_command(_redact())
 
 
-@app.command("reactions")
+@app.command("reactions", rich_help_panel=HELP_REACTIONS)
 @app.command("rxs", hidden=True)
 def reactions(  # pragma: no cover
     ctx: typer.Context,
@@ -2238,7 +2255,7 @@ def reactions(  # pragma: no cover
     _run_async_command(_reactions())
 
 
-@app.command("tui")
+@app.command("tui", rich_help_panel=HELP_INTERFACE)
 def tui():  # pragma: no cover
     """Launch interactive TUI chat interface."""
     from matty.tui import MattyApp  # noqa: PLC0415
