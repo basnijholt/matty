@@ -6,11 +6,12 @@ import json
 import os
 import re
 import sys
+import webbrowser
 from collections.abc import Awaitable
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import NoReturn
 from urllib.parse import urlparse
@@ -29,11 +30,22 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from matty.auth import (
+    LoginResult,
+    SSOCallbackServer,
+    build_sso_redirect_url,
+    fetch_sso_providers,
+    login_with_password,
+    login_with_token,
+)
+
 app = typer.Typer(
     help="Functional Matrix CLI client",
     no_args_is_help=True,  # Show help when no command is provided
     context_settings={"help_option_names": ["-h", "--help"]},  # Add -h short option
 )
+auth_app = typer.Typer(no_args_is_help=True)
+app.add_typer(auth_app, name="auth")
 console = Console()
 
 # =============================================================================
@@ -423,6 +435,9 @@ class Config:
     username: str | None = None
     password: str | None = None
     ssl_verify: bool = True
+    user_id: str | None = None
+    device_id: str | None = None
+    access_token: str | None = None
 
 
 @dataclass
@@ -455,7 +470,7 @@ class Message:
     thread_handle: str | None = None  # Thread handle (t1, t2, etc.)
 
 
-class OutputFormat(str, Enum):
+class OutputFormat(StrEnum):
     """Output formats."""
 
     rich = "rich"
@@ -499,22 +514,97 @@ _NO_MENTIONS_OPT: bool = typer.Option(
 # =============================================================================
 
 
-def _load_config() -> Config:
-    """Load configuration from environment variables."""
+def _default_config_path() -> Path:
+    """Return the default stored Matty credential config path."""
+    return Path.home() / ".config" / "matty" / "config.json"
+
+
+def _resolve_config_path(config: Path | None) -> Path:
+    """Resolve an optional config file path."""
+    return config or _default_config_path()
+
+
+def _load_stored_config(path: Path | None = None) -> Config:
+    """Load stored credentials from disk, returning defaults if absent."""
+    resolved_path = _resolve_config_path(path)
+    if not resolved_path.exists():
+        return Config()
+    data = json.loads(resolved_path.read_text(encoding="utf-8"))
+    return Config(
+        homeserver=str(data.get("homeserver") or "https://matrix.org"),
+        username=data.get("username") if isinstance(data.get("username"), str) else None,
+        password=data.get("password") if isinstance(data.get("password"), str) else None,
+        ssl_verify=bool(data.get("ssl_verify", True)),
+        user_id=data.get("user_id") if isinstance(data.get("user_id"), str) else None,
+        device_id=data.get("device_id") if isinstance(data.get("device_id"), str) else None,
+        access_token=data.get("access_token")
+        if isinstance(data.get("access_token"), str)
+        else None,
+    )
+
+
+def _save_config(config: Config, path: Path | None = None) -> Path:
+    """Save Matty credentials to disk."""
+    resolved_path = _resolve_config_path(path)
+    resolved_path.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        key: value
+        for key, value in {
+            "homeserver": config.homeserver.rstrip("/"),
+            "username": config.username,
+            "password": config.password,
+            "ssl_verify": config.ssl_verify,
+            "user_id": config.user_id,
+            "device_id": config.device_id,
+            "access_token": config.access_token,
+        }.items()
+        if value is not None
+    }
+    resolved_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    return resolved_path
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    """Read a boolean environment variable."""
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.lower() != "false"
+
+
+def _load_config(path: Path | None = None) -> Config:
+    """Load configuration from stored credentials and environment variables."""
 
     load_dotenv()
+    stored = _load_stored_config(path)
 
     return Config(
-        homeserver=os.getenv("MATRIX_HOMESERVER", "https://matrix.org"),
-        username=os.getenv("MATRIX_USERNAME"),
-        password=os.getenv("MATRIX_PASSWORD"),
-        ssl_verify=os.getenv("MATRIX_SSL_VERIFY", "true").lower() != "false",
+        homeserver=os.getenv("MATRIX_HOMESERVER") or stored.homeserver,
+        username=os.getenv("MATRIX_USERNAME") or stored.username,
+        password=os.getenv("MATRIX_PASSWORD") or stored.password,
+        ssl_verify=_env_bool("MATRIX_SSL_VERIFY", stored.ssl_verify),
+        user_id=os.getenv("MATRIX_USER_ID") or stored.user_id,
+        device_id=os.getenv("MATRIX_DEVICE_ID") or stored.device_id,
+        access_token=os.getenv("MATRIX_ACCESS_TOKEN") or stored.access_token,
     )
 
 
 async def _create_client(config: Config) -> AsyncClient:
     """Create a Matrix client instance."""
-    return AsyncClient(config.homeserver, config.username, ssl=config.ssl_verify)
+    user = config.user_id or config.username or ""
+    return AsyncClient(config.homeserver, user, ssl=config.ssl_verify)
+
+
+def _authenticate_client(client: AsyncClient, config: Config) -> bool:
+    """Restore a Matrix access-token session when token credentials are configured."""
+    if not config.access_token or not config.user_id or not config.device_id:
+        return False
+    client.restore_login(
+        user_id=config.user_id,
+        device_id=config.device_id,
+        access_token=config.access_token,
+    )
+    return True
 
 
 async def _login(client: AsyncClient, password: str) -> bool:
@@ -528,6 +618,30 @@ async def _login(client: AsyncClient, password: str) -> bool:
     except Exception as e:
         console.print(f"[red]Login error: {e}[/red]")
         return False
+
+
+def _has_matrix_credentials(config: Config) -> bool:
+    """Return whether config contains either password or access-token credentials."""
+    return bool(
+        (config.username and config.password)
+        or (config.user_id and config.device_id and config.access_token)
+    )
+
+
+async def _login_or_restore(client: AsyncClient, config: Config) -> bool:
+    """Authenticate a Matrix client using token restore or password login."""
+    if _authenticate_client(client, config):
+        return True
+    if config.password:
+        return await _login(client, config.password)
+    return False
+
+
+def _missing_credentials_message() -> str:
+    """Return the user-facing message for absent credentials."""
+    return (
+        "Matrix credentials required. Run `matty auth` or set MATRIX_USERNAME and MATRIX_PASSWORD."
+    )
 
 
 async def _sync_client(client: AsyncClient, timeout: int = 10000) -> None:
@@ -1085,14 +1199,14 @@ async def _execute_rooms_command(
     if password:
         config.password = password
 
-    if not config.username or not config.password:
-        console.print("[red]Username and password required[/red]")
+    if not _has_matrix_credentials(config):
+        console.print(f"[red]{_missing_credentials_message()}[/red]")
         return
 
     client = await _create_client(config)
 
     try:
-        if await _login(client, config.password):
+        if await _login_or_restore(client, config):
             rooms = await _get_rooms(client)
 
             if format == OutputFormat.rich:
@@ -1120,14 +1234,14 @@ async def _execute_messages_command(
     if password:
         config.password = password
 
-    if not config.username or not config.password:
-        console.print("[red]Username and password required[/red]")
+    if not _has_matrix_credentials(config):
+        console.print(f"[red]{_missing_credentials_message()}[/red]")
         return
 
     client = await _create_client(config)
 
     try:
-        if await _login(client, config.password):
+        if await _login_or_restore(client, config):
             room_info = await _find_room(client, room)
 
             if not room_info:
@@ -1161,14 +1275,14 @@ async def _execute_users_command(
     if password:
         config.password = password
 
-    if not config.username or not config.password:
-        console.print("[red]Username and password required[/red]")
+    if not _has_matrix_credentials(config):
+        console.print(f"[red]{_missing_credentials_message()}[/red]")
         return
 
     client = await _create_client(config)
 
     try:
-        if await _login(client, config.password):
+        if await _login_or_restore(client, config):
             rooms = await _get_rooms(client)
 
             # Find the room
@@ -1207,14 +1321,14 @@ async def _execute_send_command(
     if password:
         config.password = password
 
-    if not config.username or not config.password:
-        console.print("[red]Username and password required[/red]")
+    if not _has_matrix_credentials(config):
+        console.print(f"[red]{_missing_credentials_message()}[/red]")
         return
 
     client = await _create_client(config)
 
     try:
-        if await _login(client, config.password):
+        if await _login_or_restore(client, config):
             # Sync to get room users for mentions
             await _sync_client(client)
 
@@ -1264,16 +1378,16 @@ async def _with_client(username: str | None = None, password: str | None = None)
     if password:
         config.password = password
 
-    if not config.username or not config.password:
-        console.print("[red]Username and password required[/red]")
+    if not _has_matrix_credentials(config):
+        console.print(f"[red]{_missing_credentials_message()}[/red]")
         yield None, None, None
         return
 
     client = await _create_client(config)
 
     try:
-        if await _login(client, config.password):
-            yield client, config.username, config.password
+        if await _login_or_restore(client, config):
+            yield client, config.user_id or config.username, config.password
         else:
             console.print("[red]Login failed[/red]")
             yield None, None, None
@@ -1299,7 +1413,7 @@ async def _with_client_in_room(
     Yields:
         tuple[AsyncClient, str, str]: (client, room_id, room_name)
     """
-    async with _with_client(username, password) as (client, user, pwd):
+    async with _with_client(username, password) as (client, _user, _pwd):
         if client is None:
             yield None, None, None
             return
@@ -1321,6 +1435,186 @@ async def _with_client_in_room(
 # =============================================================================
 # CLI Commands
 # =============================================================================
+
+
+@app.command("config-path")
+def config_path() -> None:
+    """Print the path to the Matty credential config file."""
+    typer.echo(str(_default_config_path()))
+
+
+@auth_app.command("token")
+def auth_token(
+    homeserver: str = typer.Argument(..., help="Matrix homeserver URL"),
+    user_id: str = typer.Argument(..., help="Matrix user ID, e.g. @alice:example.com"),
+    access_token: str = typer.Argument(..., help="Matrix access token"),
+    device_id: str | None = typer.Option(None, help="Matrix device ID"),
+    ssl_verify: bool = typer.Option(
+        True,
+        "--ssl-verify/--no-ssl-verify",
+        help="Verify TLS certificates for Matrix requests",
+    ),
+    config: Path | None = typer.Option(None, "--config", help="Config file to write"),
+) -> None:
+    """Store an existing Matrix access token."""
+    config_path = _save_config(
+        Config(
+            homeserver=homeserver.rstrip("/"),
+            ssl_verify=ssl_verify,
+            user_id=user_id,
+            device_id=device_id,
+            access_token=access_token,
+        ),
+        config,
+    )
+    typer.echo(f"Saved Matty credentials to {config_path}")
+
+
+@auth_app.command("password")
+def auth_password(
+    homeserver: str = typer.Argument(..., help="Matrix homeserver URL"),
+    user: str = typer.Argument(..., help="Matrix user ID or localpart"),
+    password: str = typer.Option(..., prompt=True, hide_input=True, confirmation_prompt=False),
+    device_name: str = typer.Option("matty", help="Matrix device display name"),
+    ssl_verify: bool = typer.Option(
+        True,
+        "--ssl-verify/--no-ssl-verify",
+        help="Verify TLS certificates for Matrix requests",
+    ),
+    config: Path | None = typer.Option(None, "--config", help="Config file to write"),
+) -> None:
+    """Login using Matrix password auth and store the resulting access token."""
+    result = asyncio.run(
+        login_with_password(
+            homeserver=homeserver,
+            user=user,
+            password=password,
+            device_name=device_name,
+            ssl_verify=ssl_verify,
+        )
+    )
+    config_path = _save_config(_config_from_login_result(result), config)
+    typer.echo(f"Saved Matty credentials for {result.user_id} to {config_path}")
+
+
+@auth_app.command("sso-url")
+def auth_sso_url(
+    homeserver: str = typer.Argument(..., help="Matrix homeserver URL"),
+    redirect_url: str = typer.Argument(..., help="Callback URL that receives loginToken"),
+    idp_id: str | None = typer.Option(None, help="Optional Matrix SSO provider ID"),
+    open_browser: bool = typer.Option(False, "--open", help="Open the SSO URL in a browser"),
+) -> None:
+    """Print a Matrix SSO redirect URL."""
+    url = build_sso_redirect_url(homeserver=homeserver, redirect_url=redirect_url, idp_id=idp_id)
+    typer.echo(url)
+    if open_browser:
+        webbrowser.open(url)
+
+
+@auth_app.command("providers")
+def auth_providers(
+    homeserver: str = typer.Argument(..., help="Matrix homeserver URL"),
+    ssl_verify: bool = typer.Option(
+        True,
+        "--ssl-verify/--no-ssl-verify",
+        help="Verify TLS certificates for Matrix requests",
+    ),
+) -> None:
+    """List Matrix SSO provider IDs for a homeserver."""
+    providers = fetch_sso_providers(homeserver=homeserver, ssl_verify=ssl_verify)
+    if not providers:
+        typer.echo("No Matrix SSO providers advertised by this homeserver.")
+        return
+    for provider in providers:
+        typer.echo(f"{provider.id}\t{provider.name or provider.brand or provider.id}")
+
+
+@auth_app.command("sso")
+def auth_sso(
+    homeserver: str = typer.Argument(..., help="Matrix homeserver URL"),
+    idp_id: str | None = typer.Option(None, help="Optional Matrix SSO provider ID"),
+    callback_host: str = typer.Option("127.0.0.1", help="Local callback bind host"),
+    callback_port: int = typer.Option(0, help="Local callback bind port; 0 chooses a free port"),
+    device_name: str = typer.Option("matty", help="Matrix device display name"),
+    ssl_verify: bool = typer.Option(
+        True,
+        "--ssl-verify/--no-ssl-verify",
+        help="Verify TLS certificates for Matrix requests",
+    ),
+    config: Path | None = typer.Option(None, "--config", help="Config file to write"),
+) -> None:
+    """Login through Matrix SSO in a browser and save the resulting access token."""
+    callback = SSOCallbackServer(host=callback_host, port=callback_port)
+    try:
+        url = build_sso_redirect_url(
+            homeserver=homeserver,
+            redirect_url=callback.redirect_url,
+            idp_id=idp_id,
+        )
+        typer.echo(f"Opening Matrix SSO URL: {url}")
+        webbrowser.open(url)
+        login_token = callback.wait_for_token()
+        result = asyncio.run(
+            login_with_token(
+                homeserver=homeserver,
+                login_token=login_token,
+                device_name=device_name,
+                ssl_verify=ssl_verify,
+            )
+        )
+    finally:
+        callback.close()
+    config_path = _save_config(_config_from_login_result(result), config)
+    typer.echo(f"Saved Matty credentials for {result.user_id} to {config_path}")
+
+
+@auth_app.command("login-token")
+def auth_login_token(
+    homeserver: str = typer.Argument(..., help="Matrix homeserver URL"),
+    login_token: str = typer.Argument(..., help="Single-use Matrix m.login.token value"),
+    device_name: str = typer.Option("matty", help="Matrix device display name"),
+    ssl_verify: bool = typer.Option(
+        True,
+        "--ssl-verify/--no-ssl-verify",
+        help="Verify TLS certificates for Matrix requests",
+    ),
+    config: Path | None = typer.Option(None, "--config", help="Config file to write"),
+) -> None:
+    """Exchange a Matrix SSO loginToken for an access token and save it."""
+    result = asyncio.run(
+        login_with_token(
+            homeserver=homeserver,
+            login_token=login_token,
+            device_name=device_name,
+            ssl_verify=ssl_verify,
+        )
+    )
+    config_path = _save_config(_config_from_login_result(result), config)
+    typer.echo(f"Saved Matty credentials for {result.user_id} to {config_path}")
+
+
+@auth_app.command("logout")
+def auth_logout(
+    config: Path | None = typer.Option(None, "--config", help="Config file to remove"),
+) -> None:
+    """Remove stored Matty credentials."""
+    config_path = _resolve_config_path(config)
+    if config_path.exists():
+        config_path.unlink()
+        typer.echo(f"Removed Matty credentials from {config_path}")
+        return
+    typer.echo(f"No Matty credentials found at {config_path}")
+
+
+def _config_from_login_result(result: LoginResult) -> Config:
+    """Convert an auth login result into stored Matty config."""
+    return Config(
+        homeserver=result.homeserver.rstrip("/"),
+        ssl_verify=result.ssl_verify,
+        user_id=result.user_id,
+        device_id=result.device_id,
+        access_token=result.access_token,
+    )
 
 
 @app.command("rooms")

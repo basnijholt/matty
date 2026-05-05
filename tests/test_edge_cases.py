@@ -259,14 +259,14 @@ class TestEdgeCases:
     def test_parse_mentions_with_full_matrix_id(self):
         """Test parsing mentions with full Matrix IDs."""
         users = ["@alice:matrix.org", "@bob:matrix.org"]
-        body, formatted, mentioned = _parse_mentions("Hello @alice:matrix.org", users)
+        _body, formatted, mentioned = _parse_mentions("Hello @alice:matrix.org", users)
         assert mentioned == ["@alice:matrix.org"]
         assert "@alice:matrix.org" in formatted
 
     def test_parse_mentions_mixed(self):
         """Test parsing mixed mention formats."""
         users = ["@alice:matrix.org", "@bob:matrix.org"]
-        body, formatted, mentioned = _parse_mentions(
+        _body, _formatted, mentioned = _parse_mentions(
             "@alice and @bob:matrix.org please review", users
         )
         assert "@alice:matrix.org" in mentioned
