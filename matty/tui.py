@@ -27,7 +27,7 @@ from textual.widgets import (
 )
 from textual.widgets.option_list import Option
 
-from matty import (
+from matty.cli import (
     Config,
     Message,
     Room,

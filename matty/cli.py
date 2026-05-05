@@ -1898,7 +1898,7 @@ def reactions(  # pragma: no cover
 @app.command("tui")
 def tui():  # pragma: no cover
     """Launch interactive TUI chat interface."""
-    from matty_tui import MattyApp  # noqa: PLC0415
+    from matty.tui import MattyApp  # noqa: PLC0415
 
     MattyApp().run()
 
