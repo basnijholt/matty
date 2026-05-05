@@ -8,6 +8,7 @@ from nio import AsyncClient, MatrixRoom
 from typer.testing import CliRunner
 
 from matty import (
+    Config,
     OutputFormat,
     _execute_messages_command,
     _execute_rooms_command,
@@ -51,7 +52,10 @@ class TestAsyncCommandExecution:
             client = MagicMock(spec=AsyncClient)
             mock_create.return_value = client
 
-            with patch("matty._login", return_value=False):
+            with (
+                patch("matty._load_config", return_value=Config("https://matrix.org")),
+                patch("matty._login", return_value=False),
+            ):
                 client.close = AsyncMock()
 
                 await _execute_rooms_command("user", "pass", OutputFormat.simple)

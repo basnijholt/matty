@@ -136,23 +136,33 @@ Environment variables are still supported and override stored credentials.
 │                                 customize the installation.                            │
 │ --help                -h        Show this message and exit.                            │
 ╰────────────────────────────────────────────────────────────────────────────────────────╯
-╭─ Commands ─────────────────────────────────────────────────────────────────────────────╮
+╭─ Setup ────────────────────────────────────────────────────────────────────────────────╮
 │ config-path   Print the path to the Matty credential config file.                      │
+│ auth          Manage Matrix authentication credentials.                                │
+╰────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Browse ───────────────────────────────────────────────────────────────────────────────╮
 │ rooms         List all joined rooms. (alias: r)                                        │
 │ messages      Show recent messages from a room. (alias: m)                             │
 │ users         Show users in a room. (alias: u)                                         │
+╰────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Messaging ────────────────────────────────────────────────────────────────────────────╮
 │ send          Send a message to a room. Supports @mentions. (alias: s)                 │
-│ threads       List all threads in a room. (alias: t)                                   │
-│ thread        Show all messages in a specific thread. (alias: th)                      │
 │ reply         Reply to a specific message using its handle. (alias: re)                │
-│ thread-start  Start a new thread from a message using its handle. (alias: ts)          │
-│ thread-reply  Reply within an existing thread. (alias: tr)                             │
-│ react         Add a reaction to a message using its handle. (alias: rx)                │
 │ edit          Edit a message using its handle. (alias: e)                              │
 │ redact        Delete/redact a message using its handle. (alias: del)                   │
+╰────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Threads ──────────────────────────────────────────────────────────────────────────────╮
+│ threads       List all threads in a room. (alias: t)                                   │
+│ thread        Show all messages in a specific thread. (alias: th)                      │
+│ thread-start  Start a new thread from a message using its handle. (alias: ts)          │
+│ thread-reply  Reply within an existing thread. (alias: tr)                             │
+╰────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Reactions ────────────────────────────────────────────────────────────────────────────╮
+│ react         Add a reaction to a message using its handle. (alias: rx)                │
 │ reactions     Show detailed reactions for a specific message. (alias: rxs)             │
+╰────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Interface ────────────────────────────────────────────────────────────────────────────╮
 │ tui           Launch interactive TUI chat interface.                                   │
-│ auth                                                                                   │
 ╰────────────────────────────────────────────────────────────────────────────────────────╯
 
 ```
