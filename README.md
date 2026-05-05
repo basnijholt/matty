@@ -57,13 +57,14 @@ Matty can store Matrix access-token credentials in your user config directory:
 matty auth sso https://matrix.example.com
 ```
 
-If the homeserver advertises multiple SSO providers, list their provider IDs:
+If the homeserver advertises multiple SSO providers, list their provider IDs and labels:
 
 ```bash
 matty auth providers https://matrix.example.com
 ```
 
-Then pass the provider ID explicitly:
+Then pass the provider ID, name, or brand explicitly. Matty resolves labels like `github`
+to the canonical provider ID before opening the browser:
 
 ```bash
 matty auth sso https://matrix.example.com --idp-id github

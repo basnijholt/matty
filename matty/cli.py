@@ -37,6 +37,7 @@ from matty.auth import (
     fetch_sso_providers,
     login_with_password,
     login_with_token,
+    resolve_sso_provider_id,
 )
 
 app = typer.Typer(
@@ -1501,11 +1502,28 @@ def auth_password(
 def auth_sso_url(
     homeserver: str = typer.Argument(..., help="Matrix homeserver URL"),
     redirect_url: str = typer.Argument(..., help="Callback URL that receives loginToken"),
-    idp_id: str | None = typer.Option(None, help="Optional Matrix SSO provider ID"),
+    idp_id: str | None = typer.Option(
+        None,
+        help="Optional Matrix SSO provider ID, name, or brand",
+    ),
+    ssl_verify: bool = typer.Option(
+        True,
+        "--ssl-verify/--no-ssl-verify",
+        help="Verify TLS certificates for Matrix requests",
+    ),
     open_browser: bool = typer.Option(False, "--open", help="Open the SSO URL in a browser"),
 ) -> None:
     """Print a Matrix SSO redirect URL."""
-    url = build_sso_redirect_url(homeserver=homeserver, redirect_url=redirect_url, idp_id=idp_id)
+    resolved_idp_id = _resolve_sso_provider_id(
+        homeserver=homeserver,
+        idp_id=idp_id,
+        ssl_verify=ssl_verify,
+    )
+    url = build_sso_redirect_url(
+        homeserver=homeserver,
+        redirect_url=redirect_url,
+        idp_id=resolved_idp_id,
+    )
     typer.echo(url)
     if open_browser:
         webbrowser.open(url)
@@ -1526,13 +1544,16 @@ def auth_providers(
         typer.echo("No Matrix SSO providers advertised by this homeserver.")
         return
     for provider in providers:
-        typer.echo(f"{provider.id}\t{provider.name or provider.brand or provider.id}")
+        typer.echo(f"{provider.id}\t{_sso_provider_label(provider)}")
 
 
 @auth_app.command("sso")
 def auth_sso(
     homeserver: str = typer.Argument(..., help="Matrix homeserver URL"),
-    idp_id: str | None = typer.Option(None, help="Optional Matrix SSO provider ID"),
+    idp_id: str | None = typer.Option(
+        None,
+        help="Optional Matrix SSO provider ID, name, or brand",
+    ),
     callback_host: str = typer.Option("127.0.0.1", help="Local callback bind host"),
     callback_port: int = typer.Option(0, help="Local callback bind port; 0 chooses a free port"),
     device_name: str = typer.Option("matty", help="Matrix device display name"),
@@ -1546,10 +1567,15 @@ def auth_sso(
     """Login through Matrix SSO in a browser and save the resulting access token."""
     callback = SSOCallbackServer(host=callback_host, port=callback_port)
     try:
+        resolved_idp_id = _resolve_sso_provider_id(
+            homeserver=homeserver,
+            idp_id=idp_id,
+            ssl_verify=ssl_verify,
+        )
         url = build_sso_redirect_url(
             homeserver=homeserver,
             redirect_url=callback.redirect_url,
-            idp_id=idp_id,
+            idp_id=resolved_idp_id,
         )
         typer.echo(f"Opening Matrix SSO URL: {url}")
         webbrowser.open(url)
@@ -1615,6 +1641,29 @@ def _config_from_login_result(result: LoginResult) -> Config:
         device_id=result.device_id,
         access_token=result.access_token,
     )
+
+
+def _resolve_sso_provider_id(
+    *,
+    homeserver: str,
+    idp_id: str | None,
+    ssl_verify: bool,
+) -> str | None:
+    """Resolve a user-facing SSO provider selector before starting browser auth."""
+    if idp_id is None:
+        return None
+
+    providers = fetch_sso_providers(homeserver=homeserver, ssl_verify=ssl_verify)
+    if not providers:
+        return idp_id
+    try:
+        return resolve_sso_provider_id(idp_id, providers)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--idp-id") from exc
+
+
+def _sso_provider_label(provider) -> str:
+    return provider.name or provider.brand or provider.id
 
 
 @app.command("rooms")

@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, quote, urlencode, urlsplit
 
 import httpx
 from nio import AsyncClient, LoginResponse
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 
 @dataclass(frozen=True)
@@ -67,6 +70,33 @@ def fetch_sso_providers(*, homeserver: str, ssl_verify: bool = True) -> list[SSO
     _raise_for_redirect(response)
     response.raise_for_status()
     return parse_sso_providers(_response_json_object(response, context="Matrix login response"))
+
+
+def resolve_sso_provider_id(idp_id: str, providers: Iterable[SSOProvider]) -> str:
+    """Resolve a Matrix SSO provider id, name, or brand to its advertised id."""
+    provider_list = list(providers)
+    for provider in provider_list:
+        if idp_id == provider.id:
+            return provider.id
+
+    normalized = idp_id.casefold()
+    matches = [
+        provider
+        for provider in provider_list
+        if normalized
+        in {alias.casefold() for alias in (provider.id, provider.name, provider.brand) if alias}
+    ]
+    if not matches:
+        available = ", ".join(_provider_alias_label(provider) for provider in provider_list)
+        msg = f"Matrix SSO provider {idp_id!r} is not advertised by this homeserver"
+        if available:
+            msg = f"{msg}. Available providers: {available}"
+        raise ValueError(msg)
+    if len(matches) > 1:
+        available = ", ".join(_provider_alias_label(provider) for provider in matches)
+        msg = f"Matrix SSO provider {idp_id!r} is ambiguous. Matching providers: {available}"
+        raise ValueError(msg)
+    return matches[0].id
 
 
 def extract_login_token(query: str) -> str:
@@ -258,3 +288,14 @@ def _required_string(data: dict[str, Any], key: str, *, context: str) -> str:
         return value
     msg = f"{context} did not include required string field {key!r}"
     raise RuntimeError(msg)
+
+
+def _provider_alias_label(provider: SSOProvider) -> str:
+    aliases = list(
+        dict.fromkeys(
+            alias for alias in (provider.name, provider.brand) if alias and alias != provider.id
+        )
+    )
+    if not aliases:
+        return provider.id
+    return f"{provider.id} ({'/'.join(aliases)})"
