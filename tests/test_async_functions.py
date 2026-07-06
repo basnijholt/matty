@@ -66,7 +66,12 @@ class TestAsyncFunctions:
         client.sync = AsyncMock(return_value=sync_response)
 
         await _sync_client(client, timeout=1000)
-        client.sync.assert_called_once_with(timeout=1000)
+        client.sync.assert_awaited_once()
+        call = client.sync.await_args
+        assert call.kwargs["timeout"] == 1000
+        # matty always uses a slim CLI-only sync filter to keep one-shot
+        # commands cheap on large accounts (see _CLI_SYNC_FILTER).
+        assert "sync_filter" in call.kwargs
 
     @pytest.mark.asyncio
     async def test_get_rooms(self):

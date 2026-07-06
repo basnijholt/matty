@@ -16,14 +16,18 @@ from pathlib import Path
 from typing import NoReturn
 from urllib.parse import urlparse
 
+import httpx
 import typer
+from aiohttp import ClientConnectionError
 from dotenv import load_dotenv
 from nio import (
     AsyncClient,
+    AsyncClientConfig,
     ErrorResponse,
     ReactionEvent,
     RedactedEvent,
     RoomMessageText,
+    SyncError,
 )
 from pydantic import BaseModel, Field, field_validator
 from rich.console import Console
@@ -35,6 +39,7 @@ from matty.auth import (
     SSOCallbackServer,
     build_sso_redirect_url,
     fetch_sso_providers,
+    fetch_whoami,
     login_with_password,
     login_with_token,
     resolve_sso_provider_id,
@@ -607,10 +612,34 @@ def _load_config(path: Path | None = None) -> Config:
     )
 
 
+# Matty commands are one-shot CLI invocations, so we cap the built-in nio retry
+# loop that otherwise reports "Timed out, sleeping for Ns" and never surrenders
+# when a homeserver (or the network in front of it) drops the initial /sync.
+_DEFAULT_MAX_TIMEOUTS = 3
+_DEFAULT_REQUEST_TIMEOUT = 60
+
+
+def _build_client_config() -> AsyncClientConfig:
+    """Return the AsyncClientConfig used by every matty CLI-driven Matrix client.
+
+    Bounds nio's internal timeout-retry loop so a stalled or unreachable server
+    surfaces as an error instead of an endless "Timed out, sleeping..." spin.
+    """
+    return AsyncClientConfig(
+        request_timeout=_DEFAULT_REQUEST_TIMEOUT,
+        max_timeouts=_DEFAULT_MAX_TIMEOUTS,
+    )
+
+
 async def _create_client(config: Config) -> AsyncClient:
     """Create a Matrix client instance."""
     user = config.user_id or config.username or ""
-    return AsyncClient(config.homeserver, user, ssl=config.ssl_verify)
+    return AsyncClient(
+        config.homeserver,
+        user,
+        ssl=config.ssl_verify,
+        config=_build_client_config(),
+    )
 
 
 def _authenticate_client(client: AsyncClient, config: Config) -> bool:
@@ -640,10 +669,37 @@ async def _login(client: AsyncClient, password: str) -> bool:
 
 def _has_matrix_credentials(config: Config) -> bool:
     """Return whether config contains either password or access-token credentials."""
-    return bool(
-        (config.username and config.password)
-        or (config.user_id and config.device_id and config.access_token)
-    )
+    return not _missing_credential_reason(config)
+
+
+def _missing_credential_reason(config: Config) -> str | None:
+    """Return a human-readable description of what is missing, or ``None`` if complete.
+
+    Matty supports either password auth (``username`` + ``password``) or access-token
+    auth (``user_id`` + ``device_id`` + ``access_token``). If either set is complete
+    this returns ``None``. Otherwise it names the fields that would complete the
+    closer of the two — preferring token auth when *any* token field is present.
+    """
+    token_fields = {
+        "user_id": config.user_id,
+        "device_id": config.device_id,
+        "access_token": config.access_token,
+    }
+    password_fields = {
+        "username": config.username,
+        "password": config.password,
+    }
+    if not any(token_fields.values()) and not any(password_fields.values()):
+        return "no Matrix credentials configured"
+    if all(token_fields.values()) or all(password_fields.values()):
+        return None
+
+    # Prefer describing token auth if any token field is set, otherwise password.
+    if any(token_fields.values()):
+        missing = [name for name, value in token_fields.items() if not value]
+        return f"access-token auth is incomplete (missing: {', '.join(missing)})"
+    missing = [name for name, value in password_fields.items() if not value]
+    return f"password auth is incomplete (missing: {', '.join(missing)})"
 
 
 async def _login_or_restore(client: AsyncClient, config: Config) -> bool:
@@ -655,16 +711,66 @@ async def _login_or_restore(client: AsyncClient, config: Config) -> bool:
     return False
 
 
-def _missing_credentials_message() -> str:
-    """Return the user-facing message for absent credentials."""
+def _missing_credentials_message(config: Config | None = None) -> str:
+    """Return the user-facing message for absent credentials.
+
+    If ``config`` is provided the message names the specific fields that are
+    missing so users can distinguish between "no credentials at all" and
+    "credentials partly set, e.g. no device_id".
+    """
+    reason = _missing_credential_reason(config) if config is not None else None
+    prefix = (
+        "Matrix credentials required"
+        if reason is None
+        else f"Matrix credentials required: {reason}"
+    )
     return (
-        "Matrix credentials required. Run `matty auth` or set MATRIX_USERNAME and MATRIX_PASSWORD."
+        f"{prefix}. Run `matty auth` "
+        "(e.g. `matty auth password` or `matty auth token`) "
+        "or set MATRIX_USERNAME and MATRIX_PASSWORD."
     )
 
 
+class MatrixSyncError(RuntimeError):
+    """Raised when a Matrix ``/sync`` returned an error instead of an update."""
+
+
+# A minimal sync filter for one-shot CLI invocations: matty never long-polls,
+# never needs presence, and cares about room membership + a tiny bit of
+# timeline. Lazy-loading members keeps the initial /sync cheap on large
+# accounts where a full sync would time out (and produce the historic
+# "next_batch is a required property" schema failure when the homeserver
+# eventually returned an empty/error body).
+_CLI_SYNC_FILTER: dict[str, object] = {
+    "room": {
+        "state": {"lazy_load_members": True},
+        "timeline": {"limit": 20, "lazy_load_members": True},
+        "ephemeral": {"limit": 0, "types": []},
+        "account_data": {"limit": 0, "types": []},
+    },
+    "presence": {"limit": 0, "types": []},
+    "account_data": {"limit": 0, "types": []},
+}
+
+
 async def _sync_client(client: AsyncClient, timeout: int = 10000) -> None:
-    """Sync client with server."""
-    await client.sync(timeout=timeout)
+    """Sync client with server, raising :class:`MatrixSyncError` on failure.
+
+    Uses :data:`_CLI_SYNC_FILTER` so heavy accounts do not force a full-state
+    sync on every one-shot command; that filter is what keeps ``matty rooms``
+    from timing out on hundred-plus-room users.
+    """
+    response = await client.sync(timeout=timeout, sync_filter=_CLI_SYNC_FILTER)
+    if isinstance(response, SyncError):
+        detail = str(getattr(response, "message", "") or "").rstrip(". ") or str(
+            getattr(response, "status_code", "") or ""
+        )
+        msg = (
+            "Matrix /sync failed"
+            + (f": {detail}" if detail else "")
+            + ". The homeserver returned an error or an unexpected response body."
+        )
+        raise MatrixSyncError(msg)
 
 
 async def _get_rooms(client: AsyncClient) -> list[Room]:
@@ -1218,7 +1324,7 @@ async def _execute_rooms_command(
         config.password = password
 
     if not _has_matrix_credentials(config):
-        console.print(f"[red]{_missing_credentials_message()}[/red]")
+        console.print(f"[red]{_missing_credentials_message(config)}[/red]")
         return
 
     client = await _create_client(config)
@@ -1253,7 +1359,7 @@ async def _execute_messages_command(
         config.password = password
 
     if not _has_matrix_credentials(config):
-        console.print(f"[red]{_missing_credentials_message()}[/red]")
+        console.print(f"[red]{_missing_credentials_message(config)}[/red]")
         return
 
     client = await _create_client(config)
@@ -1294,7 +1400,7 @@ async def _execute_users_command(
         config.password = password
 
     if not _has_matrix_credentials(config):
-        console.print(f"[red]{_missing_credentials_message()}[/red]")
+        console.print(f"[red]{_missing_credentials_message(config)}[/red]")
         return
 
     client = await _create_client(config)
@@ -1340,7 +1446,7 @@ async def _execute_send_command(
         config.password = password
 
     if not _has_matrix_credentials(config):
-        console.print(f"[red]{_missing_credentials_message()}[/red]")
+        console.print(f"[red]{_missing_credentials_message(config)}[/red]")
         return
 
     client = await _create_client(config)
@@ -1376,6 +1482,17 @@ def _run_async_command(coro: Awaitable[None]) -> None:
     except MessageFetchError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from exc
+    except MatrixSyncError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    except (ClientConnectionError, TimeoutError) as exc:
+        # nio raises these when max_timeouts is exceeded (see AsyncClient._send)
+        # so we get here instead of the historic "Timed out, sleeping..." loop.
+        console.print(
+            f"[red]Matrix homeserver is unreachable ({exc.__class__.__name__}: {exc}). "
+            f"Give up after {_DEFAULT_MAX_TIMEOUTS} retries.[/red]"
+        )
+        raise typer.Exit(1) from exc
 
 
 # =============================================================================
@@ -1397,7 +1514,7 @@ async def _with_client(username: str | None = None, password: str | None = None)
         config.password = password
 
     if not _has_matrix_credentials(config):
-        console.print(f"[red]{_missing_credentials_message()}[/red]")
+        console.print(f"[red]{_missing_credentials_message(config)}[/red]")
         yield None, None, None
         return
 
@@ -1466,7 +1583,10 @@ def auth_token(
     homeserver: str = typer.Argument(..., help="Matrix homeserver URL"),
     user_id: str = typer.Argument(..., help="Matrix user ID, e.g. @alice:example.com"),
     access_token: str = typer.Argument(..., help="Matrix access token"),
-    device_id: str | None = typer.Option(None, help="Matrix device ID"),
+    device_id: str | None = typer.Option(
+        None,
+        help="Matrix device ID. If omitted, Matty asks the homeserver via /account/whoami.",
+    ),
     ssl_verify: bool = typer.Option(
         True,
         "--ssl-verify/--no-ssl-verify",
@@ -1474,18 +1594,69 @@ def auth_token(
     ),
     config: Path | None = typer.Option(None, "--config", help="Config file to write"),
 ) -> None:
-    """Store an existing Matrix access token."""
+    """Store an existing Matrix access token.
+
+    Every subsequent Matty command needs ``device_id``; without it access-token
+    auth cannot be restored and every call would fail with a misleading
+    "credentials required" message. If ``--device-id`` is omitted we call
+    ``/_matrix/client/v3/account/whoami`` with the supplied token and store the
+    device id it returns. If whoami does not report one we fail *at auth time*
+    with a clear message instead of writing a broken config.
+    """
+    resolved_device_id = device_id or _resolve_device_id_via_whoami(
+        homeserver=homeserver,
+        access_token=access_token,
+        ssl_verify=ssl_verify,
+    )
     config_path = _save_config(
         Config(
             homeserver=homeserver.rstrip("/"),
             ssl_verify=ssl_verify,
             user_id=user_id,
-            device_id=device_id,
+            device_id=resolved_device_id,
             access_token=access_token,
         ),
         config,
     )
     typer.echo(f"Saved Matty credentials to {config_path}")
+
+
+def _resolve_device_id_via_whoami(
+    *,
+    homeserver: str,
+    access_token: str,
+    ssl_verify: bool,
+) -> str:
+    """Return a device id for ``access_token`` by asking the homeserver.
+
+    Raises ``typer.BadParameter`` with a clear message if the token is not
+    accepted or if the whoami response does not include a device id — matty
+    cannot restore an access-token session without one.
+    """
+    try:
+        whoami = asyncio.run(
+            fetch_whoami(
+                homeserver=homeserver,
+                access_token=access_token,
+                ssl_verify=ssl_verify,
+            )
+        )
+    except httpx.HTTPStatusError as exc:
+        message = (
+            "Homeserver rejected the access token when resolving --device-id "
+            f"(HTTP {exc.response.status_code}). Pass --device-id explicitly "
+            "or supply a valid token."
+        )
+        raise typer.BadParameter(message, param_hint="ACCESS_TOKEN") from exc
+
+    if not whoami.device_id:
+        message = (
+            "Homeserver did not report a device_id for this access token "
+            "(the token may not be tied to a device). "
+            "Pass --device-id explicitly."
+        )
+        raise typer.BadParameter(message, param_hint="--device-id")
+    return whoami.device_id
 
 
 @auth_app.command("password", rich_help_panel=AUTH_HELP_DIRECT)

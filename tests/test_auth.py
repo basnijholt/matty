@@ -19,15 +19,23 @@ from matty.auth import (
     LoginResult,
     SSOCallbackServer,
     SSOProvider,
+    WhoamiResult,
     build_sso_redirect_url,
     extract_login_token,
     fetch_sso_providers,
+    fetch_whoami,
     login_with_password,
     login_with_token,
     parse_sso_providers,
     resolve_sso_provider_id,
 )
-from matty.cli import _authenticate_client, _load_config, app
+from matty.cli import (
+    _authenticate_client,
+    _load_config,
+    _missing_credential_reason,
+    _missing_credentials_message,
+    app,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -62,6 +70,56 @@ def test_auth_help_lists_all_auth_modes() -> None:
     assert "logout" in result.output
 
 
+def test_missing_credentials_message_names_incomplete_token_fields() -> None:
+    config = Config(
+        homeserver="https://matrix.example.com",
+        user_id="@alice:example.com",
+        access_token="test-token",
+    )
+
+    assert _missing_credential_reason(config) == (
+        "access-token auth is incomplete (missing: device_id)"
+    )
+    message = _missing_credentials_message(config)
+    assert "device_id" in message
+    assert "matty auth" in message
+
+
+def test_missing_credentials_message_names_incomplete_password_fields() -> None:
+    config = Config(homeserver="https://matrix.example.com", username="alice")
+
+    assert _missing_credential_reason(config) == ("password auth is incomplete (missing: password)")
+    assert "password" in _missing_credentials_message(config)
+
+
+def test_missing_credentials_message_when_no_fields_set() -> None:
+    config = Config()
+
+    assert _missing_credential_reason(config) == "no Matrix credentials configured"
+    assert "MATRIX_USERNAME" in _missing_credentials_message(config)
+
+
+def test_missing_credentials_message_returns_none_for_complete_token_auth() -> None:
+    config = Config(
+        homeserver="https://matrix.example.com",
+        user_id="@alice:example.com",
+        device_id="TESTDEVICE",
+        access_token="test-token",
+    )
+
+    assert _missing_credential_reason(config) is None
+
+
+def test_missing_credentials_message_returns_none_for_complete_password_auth() -> None:
+    config = Config(
+        homeserver="https://matrix.example.com",
+        username="alice",
+        password="secret",
+    )
+
+    assert _missing_credential_reason(config) is None
+
+
 def test_auth_token_writes_stored_access_token_config(tmp_path: Path) -> None:
     config_path = tmp_path / "config.json"
 
@@ -87,6 +145,108 @@ def test_auth_token_writes_stored_access_token_config(tmp_path: Path) -> None:
     assert saved["device_id"] == "TESTDEVICE"
     assert saved["access_token"] == "test-token"
     assert "password" not in saved
+
+
+def test_auth_token_calls_whoami_when_device_id_omitted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config_path = tmp_path / "config.json"
+    seen: dict[str, object] = {}
+
+    async def fake_fetch_whoami(
+        *, homeserver: str, access_token: str, ssl_verify: bool
+    ) -> WhoamiResult:
+        seen["homeserver"] = homeserver
+        seen["access_token"] = access_token
+        seen["ssl_verify"] = ssl_verify
+        return WhoamiResult(user_id="@alice:example.com", device_id="WHOAMIDEV")
+
+    monkeypatch.setattr("matty.cli.fetch_whoami", fake_fetch_whoami)
+
+    result = runner.invoke(
+        app,
+        [
+            "auth",
+            "token",
+            "https://matrix.example.com/",
+            "@alice:example.com",
+            "test-token",
+            "--config",
+            str(config_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert seen == {
+        "homeserver": "https://matrix.example.com/",
+        "access_token": "test-token",
+        "ssl_verify": True,
+    }
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["device_id"] == "WHOAMIDEV"
+    assert saved["access_token"] == "test-token"
+
+
+def test_auth_token_fails_when_whoami_returns_no_device_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config_path = tmp_path / "config.json"
+
+    async def fake_fetch_whoami(**_kwargs) -> WhoamiResult:
+        return WhoamiResult(user_id="@alice:example.com", device_id=None)
+
+    monkeypatch.setattr("matty.cli.fetch_whoami", fake_fetch_whoami)
+
+    result = runner.invoke(
+        app,
+        [
+            "auth",
+            "token",
+            "https://matrix.example.com",
+            "@alice:example.com",
+            "test-token",
+            "--config",
+            str(config_path),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "device_id" in result.output
+    assert not config_path.exists()
+
+
+def test_auth_token_fails_when_whoami_returns_401(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config_path = tmp_path / "config.json"
+
+    async def fake_fetch_whoami(**_kwargs) -> WhoamiResult:
+        response = httpx.Response(
+            401,
+            request=httpx.Request("GET", "https://matrix.example.com/whoami"),
+            json={"errcode": "M_UNKNOWN_TOKEN", "error": "Unknown token"},
+        )
+        response.raise_for_status()
+        raise AssertionError  # unreachable
+
+    monkeypatch.setattr("matty.cli.fetch_whoami", fake_fetch_whoami)
+
+    result = runner.invoke(
+        app,
+        [
+            "auth",
+            "token",
+            "https://matrix.example.com",
+            "@alice:example.com",
+            "bad-token",
+            "--config",
+            str(config_path),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "401" in result.output
+    assert not config_path.exists()
 
 
 def test_auth_logout_removes_stored_config(tmp_path: Path) -> None:
@@ -716,6 +876,70 @@ async def test_login_with_token_requires_access_token() -> None:
             await login_with_token(
                 homeserver="https://matrix.example.com",
                 login_token="test-login-token",
+                http_client=http_client,
+            )
+
+
+@pytest.mark.asyncio
+async def test_fetch_whoami_returns_user_and_device_id() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/_matrix/client/v3/account/whoami"
+        assert request.headers["authorization"] == "Bearer test-token"
+        return httpx.Response(
+            200,
+            json={"user_id": "@alice:example.com", "device_id": "WHOAMIDEV"},
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        result = await fetch_whoami(
+            homeserver="https://matrix.example.com/",
+            access_token="test-token",
+            http_client=http_client,
+        )
+
+    assert result == WhoamiResult(user_id="@alice:example.com", device_id="WHOAMIDEV")
+
+
+@pytest.mark.asyncio
+async def test_fetch_whoami_returns_none_device_id_when_omitted() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"user_id": "@alice:example.com"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        result = await fetch_whoami(
+            homeserver="https://matrix.example.com",
+            access_token="test-token",
+            http_client=http_client,
+        )
+
+    assert result.device_id is None
+
+
+@pytest.mark.asyncio
+async def test_fetch_whoami_returns_none_device_id_when_empty() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"user_id": "@alice:example.com", "device_id": ""})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        result = await fetch_whoami(
+            homeserver="https://matrix.example.com",
+            access_token="test-token",
+            http_client=http_client,
+        )
+
+    assert result.device_id is None
+
+
+@pytest.mark.asyncio
+async def test_fetch_whoami_raises_on_http_error() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"errcode": "M_UNKNOWN_TOKEN", "error": "Unknown token"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        with pytest.raises(httpx.HTTPStatusError):
+            await fetch_whoami(
+                homeserver="https://matrix.example.com",
+                access_token="bad-token",
                 http_client=http_client,
             )
 

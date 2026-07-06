@@ -254,14 +254,67 @@ async def _fetch_user_id(
     homeserver: str,
     access_token: str,
 ) -> str:
+    data = await _fetch_whoami(
+        http_client=http_client,
+        homeserver=homeserver,
+        access_token=access_token,
+    )
+    return _required_string(data, "user_id", context="Matrix whoami response")
+
+
+async def _fetch_whoami(
+    *,
+    http_client: httpx.AsyncClient,
+    homeserver: str,
+    access_token: str,
+) -> dict[str, Any]:
+    """Call ``/_matrix/client/v3/account/whoami`` and return the parsed body."""
     response = await http_client.get(
         f"{homeserver}/_matrix/client/v3/account/whoami",
         headers={"Authorization": f"Bearer {access_token}"},
     )
     _raise_for_redirect(response)
     response.raise_for_status()
-    data = _response_json_object(response, context="Matrix whoami response")
-    return _required_string(data, "user_id", context="Matrix whoami response")
+    return _response_json_object(response, context="Matrix whoami response")
+
+
+@dataclass(frozen=True)
+class WhoamiResult:
+    """Parsed Matrix ``/account/whoami`` response fields."""
+
+    user_id: str
+    device_id: str | None
+
+
+async def fetch_whoami(
+    *,
+    homeserver: str,
+    access_token: str,
+    ssl_verify: bool = True,
+    http_client: httpx.AsyncClient | None = None,
+) -> WhoamiResult:
+    """Fetch the Matrix ``/account/whoami`` identity for an access token."""
+    normalized_homeserver = homeserver.rstrip("/")
+    if http_client is not None:
+        data = await _fetch_whoami(
+            http_client=http_client,
+            homeserver=normalized_homeserver,
+            access_token=access_token,
+        )
+    else:
+        async with httpx.AsyncClient(timeout=10, verify=ssl_verify) as client:
+            data = await _fetch_whoami(
+                http_client=client,
+                homeserver=normalized_homeserver,
+                access_token=access_token,
+            )
+
+    user_id = _required_string(data, "user_id", context="Matrix whoami response")
+    device_id = data.get("device_id")
+    return WhoamiResult(
+        user_id=user_id,
+        device_id=device_id if isinstance(device_id, str) and device_id else None,
+    )
 
 
 def _raise_for_redirect(response: httpx.Response) -> None:

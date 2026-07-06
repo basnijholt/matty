@@ -44,6 +44,7 @@ from matty.cli import (
     _has_matrix_credentials,
     _load_config,
     _login,
+    _missing_credentials_message,
     _send_message,
     _send_reaction,
     _sync_client,
@@ -293,9 +294,7 @@ class MattyApp(App):
     async def _connect_and_load(self) -> None:
         """Connect to Matrix and load rooms."""
         if not _has_matrix_credentials(self.config):
-            self._log_to_pane(
-                "Error: Matrix credentials required. Run `matty auth` or set MATRIX_USERNAME and MATRIX_PASSWORD."
-            )
+            self._log_to_pane(f"Error: {_missing_credentials_message(self.config)}")
             return
 
         # Close any leftover client from a previous canceled attempt
